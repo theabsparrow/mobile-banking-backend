@@ -1,0 +1,39 @@
+import type { Server } from "http";
+import { app } from "./app.js";
+import config from "./config/index.js";
+import mongoose from "mongoose";
+import { prisma } from "./config/prismaClient.js";
+
+let server: Server;
+
+async function main() {
+  try {
+    await mongoose.connect(config.mongodb_database_url as string);
+    await prisma.$connect();
+    server = app.listen(config.port, () => {
+      console.log(`server is running on port ${config.port as string} 😎`);
+    });
+  } catch (error) {
+    console.log(error);
+    process.exit(1);
+  }
+}
+
+main();
+
+process.on("unhandledRejection", async (error) => {
+  console.log(`unhandled rejection detected 😊`);
+  await prisma.$disconnect();
+  await mongoose.disconnect();
+  if (server) {
+    server.close(() => {
+      process.exit(1);
+    });
+  }
+  process.exit(1);
+});
+
+process.on("uncaughtException", async (error) => {
+  console.log(`uncaughtException detected 😊`);
+  process.exit(1);
+});
