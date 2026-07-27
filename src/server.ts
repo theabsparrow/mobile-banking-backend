@@ -1,8 +1,9 @@
-import type { Server } from "http";
-import { app } from "./app.js";
-import config from "./config/index.js";
-import mongoose from "mongoose";
-import { prisma } from "./config/prismaClient.js";
+import type { Server } from 'http';
+import mongoose from 'mongoose';
+
+import { app } from './app.js';
+import config from './config/index.js';
+import { prisma } from './config/prismaClient.js';
 
 let server: Server;
 
@@ -21,7 +22,7 @@ async function main() {
 
 main();
 
-process.on("unhandledRejection", async (error) => {
+process.on('unhandledRejection', async () => {
   console.log(`unhandled rejection detected 😊`);
   await prisma.$disconnect();
   await mongoose.disconnect();
@@ -33,7 +34,7 @@ process.on("unhandledRejection", async (error) => {
   process.exit(1);
 });
 
-process.on("uncaughtException", async (error) => {
+process.on('uncaughtException', () => {
   console.log(`uncaughtException detected 😊`);
   process.exit(1);
 });

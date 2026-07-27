@@ -1,4 +1,3 @@
-import { router } from "../../config/express.js";
+import { router } from '../../config/express.js';
 
-export const authRouts = router
-
+export const authRouts = router;
