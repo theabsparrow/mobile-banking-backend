@@ -1,119 +1,16 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../config/prismaClient.js';
-import { redisClient } from '../../config/redisClient.js';
-import { sendEmail } from '../../utills/emailSender.js';
-import { Role } from '@prisma/client';
 import type { TUser } from './auth.interface.js';
-
-/**
- * Check if the user is currently banned.
- * If the ban period has expired, it automatically resets the ban status in the database.
- */
-const checkBanStatus = async (user: { id: string; isBanned: boolean; banUntil: Date | null }) => {
-  if (user.isBanned) {
-    if (user.banUntil && user.banUntil > new Date()) {
-      const timeLeftMs = user.banUntil.getTime() - Date.now();
-      const hoursLeft = Math.ceil(timeLeftMs / (1000 * 60 * 60));
-      throw new Error(
-        `Your account is temporarily banned. Please try again after ${hoursLeft} hour(s).`
-      );
-    } else {
-      // Ban period has expired, unban the user
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          isBanned: false,
-          banUntil: null,
-        },
-      });
-      user.isBanned = false;
-      user.banUntil = null;
-    }
-  }
-};
-
-/**
- * Common flow for generating and sending OTP to user's email.
- * Applies:
- * 1. Resend cooldown of 2 minutes.
- * 2. Rate limit of 5 requests per 10 minutes.
- */
-const sendOtpFlow = async (email: string) => {
-  const cooldownKey = `otp:cooldown:${email}`;
-  const rateLimitKey = `otp:ratelimit:${email}`;
-  const codeKey = `otp:code:${email}`;
-
-  // 1. Check if the user is in 2-minute resend cooldown
-  const isCoolingDown = await redisClient.get(cooldownKey);
-  if (isCoolingDown) {
-    const cooldownTTL = await redisClient.ttl(cooldownKey);
-    throw new Error(`Please wait ${cooldownTTL} seconds before requesting another OTP.`);
-  }
-
-  // 2. Check 10-minute rate limit (max 5 requests)
-  const rateLimitCountStr = await redisClient.get(rateLimitKey);
-  const rateLimitCount = rateLimitCountStr ? parseInt(rateLimitCountStr, 10) : 0;
-  if (rateLimitCount >= 5) {
-    const rateLimitTTL = await redisClient.ttl(rateLimitKey);
-    const minutesLeft = Math.ceil(rateLimitTTL / 60);
-    throw new Error(
-      `Rate limit exceeded. Please wait ${minutesLeft} minute(s) before requesting a new OTP.`
-    );
-  }
-
-  // 3. Generate a secure 6-digit random OTP
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-  // 4. Save code to Redis (valid for 5 minutes / 300s)
-  await redisClient.set(codeKey, otp, { EX: 300 });
-
-  // 5. Save cooldown to Redis (valid for 2 minutes / 120s)
-  await redisClient.set(cooldownKey, 'true', { EX: 120 });
-
-  // 6. Increment rate limit in Redis (expires in 10 minutes / 600s)
-  if (rateLimitCount === 0) {
-    await redisClient.set(rateLimitKey, '1', { EX: 600 });
-  } else {
-    await redisClient.incr(rateLimitKey);
-  }
-
-  // 7. Send OTP via Nodemailer
-  const emailHtml = `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 500px; margin: 30px auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-      <h2 style="color: #1a202c; text-align: center; margin-bottom: 24px; font-weight: 600;">Email Verification</h2>
-      <p style="color: #4a5568; font-size: 16px; line-height: 1.5;">Hello,</p>
-      <p style="color: #4a5568; font-size: 16px; line-height: 1.5;">Thank you for registering on our platform. Use the following One-Time Password (OTP) to complete your email verification:</p>
-      <div style="font-size: 32px; font-weight: 700; text-align: center; margin: 30px 0; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; letter-spacing: 6px; border-radius: 8px;">
-        ${otp}
-      </div>
-      <p style="color: #e53e3e; font-size: 14px; font-weight: 500; margin-top: 20px;">This OTP is valid for 5 minutes.</p>
-      <p style="color: #718096; font-size: 13px; line-height: 1.5; margin-top: 30px; border-top: 1px solid #edf2f7; padding-top: 20px;">If you did not request this email, you can safely ignore it.</p>
-    </div>
-  `;
-  await sendEmail(email, 'Your Email Verification OTP Code', emailHtml);
-
-  return otp;
-};
+import { hashData } from '../../utills/hashData.js';
+import { sendOtpFlow } from '../../utills/sendOtpFlow.js';
+import AppError from '../../error/AppError.js';
+import { StatusCodes } from 'http-status-codes';
 
 /**
  * Register a new user.
  */
 const registerUser = async (payload: TUser) => {
-  const { email, phone, password, role } = payload;
-
-  if (!email) {
-    throw new Error('Email is required for registration.');
-  }
-  if (!password) {
-    throw new Error('Password is required for registration.');
-  }
-
-  // Validate Role
-  const validRoles = Object.values(Role);
-  const selectedRole = role || Role.CUSTOMER;
-  if (!validRoles.includes(selectedRole)) {
-    throw new Error(`Invalid role. Valid roles are: ${validRoles.join(', ')}`);
-  }
+  const { email, phone, password } = payload;
 
   // Check if email already exists
   const existingEmailUser = await prisma.user.findUnique({
@@ -134,64 +31,53 @@ const registerUser = async (payload: TUser) => {
   }
 
   // Hash password
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(password, salt);
+  const hashedPassword = await hashData(password);
+  const data = { ...payload, password: hashedPassword };
 
   // Create pending user in PostgreSQL
   const user = await prisma.user.create({
-    data: {
-      email,
-      phone: phone || null,
-      password: hashedPassword,
-      role: selectedRole,
-      isVerified: false,
-    },
+    data,
   });
 
   // Generate and send OTP
-  const otp = await sendOtpFlow(email);
-
-  return {
-    user: {
-      id: user.id,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      isVerified: user.isVerified,
-    },
-    // For convenience in testing environment if emails aren't configured, we'll return OTP.
-    // (In production, the client will only receive it via email/console fallback).
-    otp,
-  };
+  const registerData = await sendOtpFlow({ email: user.email, userId: user.id });
+  return registerData?.verificationId;
 };
 
 /**
  * Request a new OTP for an unverified user.
  */
-const requestOtp = async (email: string) => {
-  if (!email) {
-    throw new Error('Email is required.');
+const resendOtp = async (verificationId: string, id: string) => {
+  if (!verificationId) {
+    throw new Error('Verification ID is required.');
+  }
+
+  if (!id) {
+    throw new Error('User ID is required.');
   }
 
   const user = await prisma.user.findUnique({
-    where: { email },
+    where: { id },
   });
 
   if (!user) {
-    throw new Error('No registered user found with this email.');
+    throw new AppError(StatusCodes.NOT_FOUND, 'No registered user found');
   }
 
   if (user.isVerified) {
-    throw new Error('This account is already verified.');
+    throw new AppError(StatusCodes.CONFLICT, 'This account is already verified.');
+  }
+  if (user.status !== 'ACTIVE') {
+    throw new AppError(StatusCodes.FORBIDDEN, 'User account is not active');
   }
 
-  // Check if user is currently banned
-  await checkBanStatus(user);
-
   // Send new OTP
-  const otp = await sendOtpFlow(email);
-
-  return { otp };
+  const registerData = await sendOtpFlow({
+    email: user?.email,
+    userId: user?.id,
+    verifyId: verificationId,
+  });
+  return registerData?.verificationId;
 };
 
 /**
@@ -327,7 +213,7 @@ const loginUser = async (payload: { email: string; password?: string }) => {
 
 export const AuthService = {
   registerUser,
-  requestOtp,
+  resendOtp,
   verifyOtp,
   loginUser,
 };

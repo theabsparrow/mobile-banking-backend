@@ -1,4 +1,5 @@
 import { router } from '../../config/express.js';
+import { otpRequestMiddlewire } from '../../middlewire/otpRequestMiddlewire.js';
 import validateRequest from '../../middlewire/validateRequest.js';
 import { AuthController } from './auth.controller.js';
 import { AuthValidation } from './auth.validation.js';
@@ -9,9 +10,10 @@ router.post(
   AuthController.register
 );
 router.post(
-  '/request-otp',
-  validateRequest(AuthValidation.requestOtpValidationSchema),
-  AuthController.requestOtp
+  '/resend-otp',
+  otpRequestMiddlewire,
+  validateRequest(AuthValidation.resendOtpValidationSchema),
+  AuthController.resendOtp
 );
 router.post(
   '/verify-otp',

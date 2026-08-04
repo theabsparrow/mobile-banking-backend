@@ -1,3 +1,4 @@
+import type { TResendOtpRequestBody } from '../../middlewire/otpRequestMiddlewire.js';
 import { catchAsync } from '../../utills/catchAsync.js';
 import { sendResponse } from '../../utills/sendResponse.js';
 import type { TUser } from './auth.interface.js';
@@ -16,16 +17,14 @@ const register = catchAsync(async (req, res) => {
   });
 });
 
-const requestOtp = catchAsync(async (req, res) => {
-  const { email } = req.body as { email: string };
-  const result = await AuthService.requestOtp(email);
-
+const resendOtp = catchAsync(async (req, res) => {
+ const { verificationId } = req.body as TResendOtpRequestBody;
+ const { userId } = req.otpUser as { userId: string };
+  await AuthService.resendOtp(verificationId, userId);
   sendResponse(res, {
     statusCode: 200,
     success: true,
     message: 'A new OTP code has been successfully generated and sent to your email.',
-    meta: { page: 1, limit: 10, total: 1, totalPage: 1 },
-    data: result,
   });
 });
 
@@ -57,7 +56,7 @@ const login = catchAsync(async (req, res) => {
 
 export const AuthController = {
   register,
-  requestOtp,
+  resendOtp,
   verifyOtp,
   login,
 };

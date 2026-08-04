@@ -12,3 +12,8 @@ export type TSendResponse<T> = {
   meta?: TMeta;
   data?: T;
 };
+
+export type TRateLimit = {
+  keyPrefix: string;
+  limit: number;
+}

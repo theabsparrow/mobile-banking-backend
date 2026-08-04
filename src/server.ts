@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import { app } from './app.js';
 import config from './config/index.js';
 import { prisma } from './config/prismaClient.js';
-import { connectRedis, disconnectRedis } from './config/redisClient.js';
+import { connectRedis, disconnectRedis } from './redis/redis.client.js';
 
 let server: Server;
 
