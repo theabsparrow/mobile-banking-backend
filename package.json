@@ -7,6 +7,8 @@
     "start": "nodemon ./dist/server.js",
     "dev:prod": "node ./dist/server.js",
     "dev": "tsx watch src/server.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
     "studio": "prisma studio",
     "build": "tsc",
     "lint": "eslint .",
