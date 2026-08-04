@@ -6,3 +6,8 @@ export type TUser = {
   password: string;
   role?: Role;
 };
+
+export type TVerifyOtpBody = {
+  verificationId: string;
+  otp: string;
+};

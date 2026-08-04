@@ -1,10 +1,11 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../config/prismaClient.js';
 import type { TUser } from './auth.interface.js';
-import { hashData } from '../../utills/hashData.js';
+import { compareData, hashData } from '../../utills/hashData.js';
 import { sendOtpFlow } from '../../utills/sendOtpFlow.js';
 import AppError from '../../error/AppError.js';
 import { StatusCodes } from 'http-status-codes';
+import { handleOtpFailedAttempt } from '../../utills/otpAttempt.js';
 
 /**
  * Register a new user.
@@ -85,87 +86,37 @@ const resendOtp = async (verificationId: string, id: string) => {
  * If verified successfully, user state changes to verified.
  * If 5 failed attempts are made consecutively, user is banned for 24 hours.
  */
-const verifyOtp = async (email: string, submittedOtp: string) => {
-  if (!email || !submittedOtp) {
-    throw new Error('Email and OTP code are required.');
-  }
-
+type TVerifyOtpData = {
+  verificationId: string;
+  userId: string;
+  otp: string;
+  otpHash: string;
+};
+const verifyOtp = async ({ verificationId, userId, otp, otpHash }: TVerifyOtpData) => {
   const user = await prisma.user.findUnique({
-    where: { email },
+    where: { id: userId },
   });
-
+  // check if user exists verified or active
   if (!user) {
     throw new Error('User not found.');
   }
-
-  if (user.isVerified) {
+  if (user?.isVerified) {
     throw new Error('Email is already verified.');
   }
-
-  // Check ban status
-  await checkBanStatus(user);
-
-  const codeKey = `otp:code:${email}`;
-  const failedKey = `otp:failed:${email}`;
-
-  const storedOtp = await redisClient.get(codeKey);
+  if (user.status !== 'ACTIVE') {
+    throw new AppError(StatusCodes.FORBIDDEN, 'User account is not active');
+  }
 
   // If OTP is correct
-  if (storedOtp && storedOtp === submittedOtp) {
-    // Update user to verified
-    const verifiedUser = await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        isVerified: true,
-        isBanned: false,
-        banUntil: null,
-      },
-    });
-
-    // Clear OTP states in Redis
-    await redisClient.del(codeKey);
-    await redisClient.del(failedKey);
-
-    return {
-      id: verifiedUser.id,
-      email: verifiedUser.email,
-      phone: verifiedUser.phone,
-      role: verifiedUser.role,
-      isVerified: verifiedUser.isVerified,
-    };
+  const isMatch = await compareData(otp, otpHash);
+  if (!isMatch) {
+    const result = await handleOtpFailedAttempt(verificationId);
+    if (result?.isBlocked) {
+      throw new AppError(429, 'Too many wrong OTP attempts. Try again after 24 hours.');
+    }
+    throw new AppError(400, 'Invalid OTP');
   }
 
-  // If OTP is incorrect or expired/null
-  const failedAttemptsStr = await redisClient.get(failedKey);
-  const failedAttempts = failedAttemptsStr ? parseInt(failedAttemptsStr, 10) : 0;
-  const newFailedAttempts = failedAttempts + 1;
-
-  if (newFailedAttempts >= 5) {
-    // Ban user for 24 hours
-    const banUntil = new Date();
-    banUntil.setHours(banUntil.getHours() + 24);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        isBanned: true,
-        banUntil,
-      },
-    });
-
-    // Clear OTP states since they are banned
-    await redisClient.del(codeKey);
-    await redisClient.del(failedKey);
-
-    throw new Error('Too many failed OTP submissions. Your account has been banned for 24 hours.');
-  } else {
-    // Store incremented failed attempts (expire in 24 hours)
-    await redisClient.set(failedKey, newFailedAttempts.toString(), { EX: 86400 });
-    const attemptsLeft = 5 - newFailedAttempts;
-    throw new Error(
-      `Invalid or expired OTP code. You have ${attemptsLeft} attempt(s) remaining before a 24-hour ban.`
-    );
-  }
 };
 
 /**
@@ -185,9 +136,6 @@ const loginUser = async (payload: { email: string; password?: string }) => {
   if (!user) {
     throw new Error('Invalid email or password.');
   }
-
-  // Check ban status
-  await checkBanStatus(user);
 
   // Check verification status
   if (!user.isVerified) {

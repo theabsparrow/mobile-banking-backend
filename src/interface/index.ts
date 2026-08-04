@@ -7,8 +7,9 @@ declare global {
     interface Request {
       user: JwtPayload;
       otpUser?: {
-      userId: string;
-    };
+        userId: string;
+        otpHash: string
+      };
     }
   }
 }
