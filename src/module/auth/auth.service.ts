@@ -1,6 +1,5 @@
-import bcrypt from 'bcryptjs';
 import { prisma } from '../../config/prismaClient.js';
-import type { TPinData, TUser } from './auth.interface.js';
+import type { TLoginData, TPinData, TUser } from './auth.interface.js';
 import { compareData, hashData } from '../../utills/hashData.js';
 import { sendOtpFlow } from '../../utills/sendOtpFlow.js';
 import AppError from '../../error/AppError.js';
@@ -8,6 +7,17 @@ import { StatusCodes } from 'http-status-codes';
 import { handleOtpFailedAttempt } from '../../utills/otpAttempt.js';
 import { clearOtpSession, clearPinSession } from '../../utills/clearOtpSession.js';
 import { setPinSession } from '../../utills/setPinSession.js';
+import createToken, { type TJwtPayload } from './auth.utills.js';
+import config from '../../config/index.js';
+import type { Request } from 'express';
+import { UAParser } from 'ua-parser-js';
+
+type TVerifyOtpData = {
+  verificationId: string;
+  userId: string;
+  otp: string;
+  otpHash: string;
+};
 
 /**
  * Register a new user.
@@ -43,13 +53,12 @@ const registerUser = async (payload: TUser) => {
   });
 
   // Generate and send OTP
-  const registerData = await sendOtpFlow({ email: user.email, userId: user.id });
+  const registerData = await sendOtpFlow({ email: user?.email, userId: user?.id });
   return registerData?.verificationId;
 };
 
-/**
- * Request a new OTP for an unverified user.
- */
+//Request a new OTP for an unverified user.
+
 const resendOtp = async (verificationId: string, id: string) => {
   if (!verificationId) {
     throw new Error('Verification ID is required.');
@@ -83,17 +92,7 @@ const resendOtp = async (verificationId: string, id: string) => {
   return registerData?.verificationId;
 };
 
-/**
- * Verify OTP.
- * If verified successfully, user state changes to verified.
- * If 5 failed attempts are made consecutively, user is banned for 24 hours.
- */
-type TVerifyOtpData = {
-  verificationId: string;
-  userId: string;
-  otp: string;
-  otpHash: string;
-};
+// verify otp
 const verifyOtp = async ({ verificationId, userId, otp, otpHash }: TVerifyOtpData) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -137,8 +136,7 @@ const verifyOtp = async ({ verificationId, userId, otp, otpHash }: TVerifyOtpDat
   await clearOtpSession(verificationId);
 
   // pin setup id settting
-  const pinSetupId = crypto.randomUUID();
-  await setPinSession(pinSetupId, user?.id);
+  const pinSetupId = await setPinSession(user?.id);
 
   return { ...updatedUser, pinSetupId };
 };
@@ -200,41 +198,102 @@ export const setPin = async (payload: TPinData, userId: string) => {
 /**
  * Login user.
  */
-const loginUser = async (payload: { email: string; password?: string }) => {
-  const { email, password } = payload;
+const loginUser = async (payload: TLoginData, req: Request) => {
+  const { email, phone, password } = payload;
+  const parser = new UAParser(req.headers['user-agent']);
+  const uaResult = parser.getResult();
+  const { browser, os, device } = uaResult;
 
-  if (!email || !password) {
-    throw new Error('Email and password are required.');
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email },
+  // find user
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])],
+    },
   });
 
   if (!user) {
-    throw new Error('Invalid email or password.');
+    throw new AppError(StatusCodes.UNAUTHORIZED, 'Invalid credentials');
   }
 
-  // Check verification status
+  // 2. User status check
+  if (user.status !== 'ACTIVE') {
+    throw new AppError(StatusCodes.FORBIDDEN, 'Your account is currently inactive.');
+  }
+
+  // 4. Email verification check
   if (!user.isVerified) {
-    throw new Error('Please verify your email address before logging in.');
+    const registerData = await sendOtpFlow({ email: user?.email, userId: user?.id });
+    return {
+      requiresEmailVerification: true,
+      verificationId: registerData?.verificationId,
+    };
   }
 
-  // Verify password
-  const isPasswordValid = await bcrypt.compare(password, user.password);
-  if (!isPasswordValid) {
-    throw new Error('Invalid email or password.');
+  // 5. PIN setup check
+  if (!user.isPinSet) {
+    const pinSetupId = await setPinSession(user?.id);
+    return {
+      requiresPinSetup: true,
+      pinSetupId,
+    };
   }
 
-  return {
-    user: {
-      id: user.id,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      isVerified: user.isVerified,
+  // if password matched
+  const isPasswordMatched = await compareData(password, user.password);
+  if (!isPasswordMatched) {
+    throw new AppError(StatusCodes.UNAUTHORIZED, 'Invalid credentials');
+  }
+
+  // active session check
+  const activeSessionCount = await prisma.session.count({
+    where: {
+      userId: user.id,
+      status: 'ACTIVE',
     },
+  });
+
+  if (activeSessionCount >= user.maxDeviceAllowed) {
+    return {
+      deviceLimitExceeded: true,
+      userId: user.id,
+    };
+  }
+
+  const jwtPayload: TJwtPayload = {
+    userId: user?.id,
+    userRole: user?.role,
   };
+
+  const accessToken = createToken(
+    jwtPayload,
+    config.jwt_access_secret as string,
+    config.jwt_access_expires_in as string
+  );
+
+  const refreshToken = createToken(
+    jwtPayload,
+    config.jwt_refresh_secret as string,
+    config.jwt_refresh_expires_in as string
+  );
+  const refreshTokenHash = await hashData(refreshToken);
+
+  const data = {
+    userId: user.id,
+    refreshTokenHash,
+    deviceName: device.model || device.vendor || 'Unknown',
+    browser: browser.name || 'Unknown',
+    operatingSystem: os.name || 'Unknown',
+    ipAddress: req.ip || null,
+    userAgent: req.headers['user-agent'] || null,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  };
+
+  const result = await prisma.session.create({
+    data,
+  });
+
+  return { accessToken, refreshToken, sessionId: result.id };
+
 };
 
 export const AuthService = {

@@ -1,24 +1,46 @@
 import type { NextFunction, Request, Response } from 'express';
-import type { TRateLimit } from '../interface/global.js';
-import { catchAsync } from '../utills/catchAsync.js';
 import { redisClient } from '../redis/redis.client.js';
-import config from '../config/index.js';
+import { catchAsync } from '../utills/catchAsync.js';
 
-export const rateLimiter = (options: TRateLimit) => {
+interface RateLimitOptions {
+  windowMs?: number; // time window in milliseconds
+  max?: number; // maximum request count
+  keyPrefix?: string;
+  message?: string;
+  keyGenerator?: (req: Request) => string;
+}
+
+export const rateLimiter = (options: RateLimitOptions = {}) => {
+  const {
+    windowMs = 5 * 60 * 1000, // default 5 minute
+    max = 10,
+    keyPrefix = 'rl:',
+    message = 'Too many requests. Please try again later.',
+    keyGenerator = (req: Request) => req.ip || 'unknown',
+  } = options;
+
+  const windowSeconds = Math.ceil(windowMs / 1000);
+
   return catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-    const ip = req.ip;
-    const key = `${options.keyPrefix}:${ip}`;
+    const identifier = keyGenerator(req);
+
+    const key = `${keyPrefix}${identifier}`;
+
     const requestCount = await redisClient.incr(key);
+
+    // first request হলে expiry set হবে
     if (requestCount === 1) {
-      await redisClient.expire(key, Number(config.rate_limiting_window));
+      await redisClient.expire(key, windowSeconds);
     }
 
-    if (requestCount > options.limit) {
+    // limit cross করলে block
+    if (requestCount > max) {
       return res.status(429).json({
-        message: 'Too many requests',
+        success: false,
+        message,
       });
     }
-    
+
     next();
   });
 };

@@ -7,8 +7,8 @@
     "start": "nodemon ./dist/server.js",
     "dev:prod": "node ./dist/server.js",
     "dev": "tsx watch src/server.ts",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
+    "generate": "prisma generate",
+    "migrate": "prisma migrate dev",
     "studio": "prisma studio",
     "build": "tsc",
     "lint": "eslint .",
@@ -63,6 +63,7 @@
     "mongoose": "^9.7.4",
     "nodemailer": "^9.0.3",
     "redis": "^6.2.0",
+    "ua-parser-js": "^2.0.10",
     "zod": "^4.4.3"
   }
 }

@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import type { TResendOtpRequestBody } from '../../middlewire/otpRequestMiddlewire.js';
 import { catchAsync } from '../../utills/catchAsync.js';
 import { sendResponse } from '../../utills/sendResponse.js';
-import type { TPinData, TUser, TVerifyOtpBody } from './auth.interface.js';
+import type { TLoginData, TPinData, TUser, TVerifyOtpBody } from './auth.interface.js';
 import { AuthService } from './auth.service.js';
 
 type TUserDataBody = { userId: string; otpHash?: string };
@@ -58,8 +58,8 @@ const setPin = catchAsync(async (req: Request, res: Response, next: NextFunction
 });
 
 const login = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const { email, password } = req.body as { email: string; password?: string };
-  const result = await AuthService.loginUser({ email, password: password as string });
+  const data = req.body as TLoginData;
+  const result = await AuthService.loginUser(data, req);
 
   sendResponse(res, {
     statusCode: 200,

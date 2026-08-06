@@ -17,3 +17,9 @@ export type TPinData = {
   newPin: string;
   confirmPin: string;
 }
+
+export type TLoginData = {
+  email?: string;
+  phone?: string;
+  password: string;
+}

@@ -1,6 +1,7 @@
 import { redisClient } from '../redis/redis.client.js';
 
-export const setPinSession = async (pinSetId: string, userId: string) => {
+export const setPinSession = async (userId: string) => {
+  const pinSetId = crypto.randomUUID();
   await redisClient.set(
     `pin:setup:${pinSetId}`,
     JSON.stringify({
@@ -10,4 +11,6 @@ export const setPinSession = async (pinSetId: string, userId: string) => {
       EX: 600, // 10 minutes
     }
   );
+
+  return pinSetId;
 };
