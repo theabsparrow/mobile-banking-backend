@@ -11,3 +11,9 @@ export type TVerifyOtpBody = {
   verificationId: string;
   otp: string;
 };
+
+export type TPinData = {
+  pinSetupId: string
+  newPin: string;
+  confirmPin: string;
+}

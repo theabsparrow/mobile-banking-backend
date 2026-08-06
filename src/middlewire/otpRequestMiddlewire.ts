@@ -10,11 +10,12 @@ export type TResendOtpRequestBody = {
 
 type TSessionRedisData = {
   userId: string;
-}
+};
 
 export const otpRequestMiddlewire = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     // check if the verificationId is present in the request body
+
     const { verificationId } = req.body as TResendOtpRequestBody;
     if (!verificationId) {
       throw new AppError(StatusCodes.BAD_REQUEST, 'Verification ID is required');
@@ -26,19 +27,33 @@ export const otpRequestMiddlewire = catchAsync(
       throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid or expired verification session');
     }
 
-    // check if the user has exceeded the OTP request limit (5 requests in 24 hours)
     const { userId } = JSON.parse(sessionData) as TSessionRedisData;
+    // check if a user is ban for submitting wrong otp
+    const blocked = await redisClient.exists(`otp:block:${userId}`);
+    if (blocked) {
+      throw new AppError(
+        StatusCodes.FORBIDDEN,
+        'Your account is temporarily blocked due to multiple failed attempts. Try again after 24 hours.'
+      );
+    }
 
+    // check if the user has exceeded the OTP request limit (5 requests in 24 hours)
     const requestKey = `otp:request:${userId}`;
     const requestCount = await redisClient.get(requestKey);
     if (requestCount && Number(requestCount) >= 5) {
-      throw new AppError(StatusCodes.TOO_MANY_REQUESTS, 'OTP request limit exceeded. Try again after 24 hours.');
+      throw new AppError(
+        StatusCodes.TOO_MANY_REQUESTS,
+        'OTP request limit exceeded. Try again after 24 hours.'
+      );
     }
 
     // check if the existing OTP is still valid for the given verificationId
     const existingOtpData = await redisClient.get(`otp:verification:${verificationId}`);
     if (existingOtpData) {
-      throw new AppError(StatusCodes.BAD_REQUEST, 'Previous OTP is still valid. Please wait until it expires.');
+      throw new AppError(
+        StatusCodes.BAD_REQUEST,
+        'Previous OTP is still valid. Please wait until it expires.'
+      );
     }
 
     // set user id to the req object

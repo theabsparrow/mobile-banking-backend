@@ -1,4 +1,3 @@
-
 import { Role } from '@prisma/client';
 import z from 'zod/v3';
 
@@ -23,9 +22,16 @@ const loginValidationSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+export const setPinValidationSchema = z.object({
+  pinSetupId: z.string().min(1, 'Pin Setup ID is required'),
+  newPin: z.string().regex(/^\d{6}$/, 'PIN must be exactly 6 digits'),
+  confirmPin: z.string().regex(/^\d{6}$/, 'Confirm PIN must be exactly 6 digits'),
+});
+
 export const AuthValidation = {
   registerValidationSchema,
   resendOtpValidationSchema,
   verifyOtpValidationSchema,
   loginValidationSchema,
+  setPinValidationSchema
 };

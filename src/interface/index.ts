@@ -8,7 +8,7 @@ declare global {
       user: JwtPayload;
       otpUser?: {
         userId: string;
-        otpHash: string
+        otpHash?: string
       };
     }
   }

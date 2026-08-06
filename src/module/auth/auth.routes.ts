@@ -1,5 +1,6 @@
 import { router } from '../../config/express.js';
 import { otpRequestMiddlewire } from '../../middlewire/otpRequestMiddlewire.js';
+import { pinSetupMiddleware } from '../../middlewire/pinSetup.js';
 import validateRequest from '../../middlewire/validateRequest.js';
 import { verifyOtpMiddlewire } from '../../middlewire/verifyOtpMiddlewire.js';
 import { AuthController } from './auth.controller.js';
@@ -22,6 +23,14 @@ router.post(
   validateRequest(AuthValidation.verifyOtpValidationSchema),
   AuthController.verifyOtp
 );
+
+router.post(
+  "/set-pin",
+  pinSetupMiddleware,
+  validateRequest(AuthValidation.setPinValidationSchema),
+  AuthController.setPin
+);
+
 router.post('/login', validateRequest(AuthValidation.loginValidationSchema), AuthController.login);
 
 export const authRouts = router;
