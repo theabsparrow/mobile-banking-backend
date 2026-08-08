@@ -1,5 +1,5 @@
 import { prisma } from '../../config/prismaClient.js';
-import type { TLoginData, TPinData, TUser } from './auth.interface.js';
+import type { TLoginData, TLogoutAll, TPinData, TUser } from './auth.interface.js';
 import { compareData, hashData } from '../../utills/hashData.js';
 import { sendOtpFlow } from '../../utills/sendOtpFlow.js';
 import AppError from '../../error/AppError.js';
@@ -7,10 +7,15 @@ import { StatusCodes } from 'http-status-codes';
 import { handleOtpFailedAttempt } from '../../utills/otpAttempt.js';
 import { clearOtpSession, clearPinSession } from '../../utills/clearOtpSession.js';
 import { setPinSession } from '../../utills/setPinSession.js';
-import createToken, { type TJwtPayload } from './auth.utills.js';
 import config from '../../config/index.js';
 import type { Request } from 'express';
 import { UAParser } from 'ua-parser-js';
+import {
+  createToken,
+  deviceSwitchSession,
+  deviceSwitchSessionClear,
+  type TJwtPayload,
+} from './auth.utills.js';
 
 type TVerifyOtpData = {
   verificationId: string;
@@ -253,15 +258,19 @@ const loginUser = async (payload: TLoginData, req: Request) => {
   });
 
   if (activeSessionCount >= user.maxDeviceAllowed) {
+    const deviceSwitchId = await deviceSwitchSession(user?.id);
     return {
       deviceLimitExceeded: true,
-      userId: user.id,
+      deviceSwitchId,
     };
   }
+
+  const sessionId = crypto.randomUUID();
 
   const jwtPayload: TJwtPayload = {
     userId: user?.id,
     userRole: user?.role,
+    sessionId,
   };
 
   const accessToken = createToken(
@@ -278,6 +287,7 @@ const loginUser = async (payload: TLoginData, req: Request) => {
   const refreshTokenHash = await hashData(refreshToken);
 
   const data = {
+    id: sessionId,
     userId: user.id,
     refreshTokenHash,
     deviceName: device.model || device.vendor || 'Unknown',
@@ -293,7 +303,62 @@ const loginUser = async (payload: TLoginData, req: Request) => {
   });
 
   return { accessToken, refreshToken, sessionId: result.id };
+};
 
+const logoutFromAll = async (userId: string, payload: TLogoutAll) => {
+  const { deviceSwitchId, pin } = payload;
+
+  // 1. Find user
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+  });
+
+  if (!user) {
+    throw new AppError(StatusCodes.NOT_FOUND, 'User not found.');
+  }
+
+  // 2. Check user status
+  if (user.status !== 'ACTIVE') {
+    throw new AppError(StatusCodes.FORBIDDEN, 'Your account is currently inactive.');
+  }
+
+  // 3. Check PIN is set
+  if (!user.isPinSet || !user.pin) {
+    throw new AppError(StatusCodes.FORBIDDEN, 'PIN is not set for this account.');
+  }
+
+  // 4. Verify PIN
+  const isPinMatched = await compareData(pin, user.pin);
+
+  if (!isPinMatched) {
+    throw new AppError(StatusCodes.UNAUTHORIZED, 'Invalid PIN.');
+  }
+
+  await prisma.session.updateMany({
+    where: {
+      userId: user.id,
+      status: 'ACTIVE',
+    },
+    data: {
+      status: 'REVOKED',
+      revokedAt: new Date(),
+    },
+  });
+  await deviceSwitchSessionClear(deviceSwitchId);
+};
+
+const logout = async (sessionId: string) => {
+  await prisma.session.update({
+    where: {
+      id: sessionId,
+    },
+    data: {
+      status: 'REVOKED',
+      revokedAt: new Date(),
+    },
+  });
 };
 
 export const AuthService = {
@@ -302,4 +367,6 @@ export const AuthService = {
   verifyOtp,
   setPin,
   loginUser,
+  logoutFromAll,
+  logout,
 };

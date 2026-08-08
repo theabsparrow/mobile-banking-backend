@@ -3,8 +3,9 @@ import type { NextFunction, Request, Response } from 'express';
 import type { TResendOtpRequestBody } from '../../middlewire/otpRequestMiddlewire.js';
 import { catchAsync } from '../../utills/catchAsync.js';
 import { sendResponse } from '../../utills/sendResponse.js';
-import type { TLoginData, TPinData, TUser, TVerifyOtpBody } from './auth.interface.js';
+import type { TLoginData, TLogoutAll, TPinData, TUser, TVerifyOtpBody } from './auth.interface.js';
 import { AuthService } from './auth.service.js';
+import type { TJwtPayload } from './auth.utills.js';
 
 type TUserDataBody = { userId: string; otpHash?: string };
 
@@ -65,8 +66,30 @@ const login = catchAsync(async (req: Request, res: Response, next: NextFunction)
     statusCode: 200,
     success: true,
     message: 'Logged in successfully.',
-    meta: { page: 1, limit: 10, total: 1, totalPage: 1 },
     data: result,
+  });
+});
+
+const logoutFromAll = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const data = req.body as TLogoutAll;
+  const { userId } = req.user as TUserDataBody;
+  const result = await AuthService.logoutFromAll(userId, data);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: 'successfully logout from all device.',
+  });
+});
+
+const logout = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const { sessionId } = req.user as TJwtPayload;
+  await AuthService.logout(sessionId);
+  res.clearCookie('accessToken');
+  res.clearCookie('refreshToken');
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: 'successfully logout.',
   });
 });
 
@@ -76,4 +99,6 @@ export const AuthController = {
   verifyOtp,
   setPin,
   login,
+  logoutFromAll,
+  logout,
 };

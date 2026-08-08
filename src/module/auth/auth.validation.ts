@@ -17,7 +17,6 @@ const verifyOtpValidationSchema = z.object({
   otp: z.string().length(6, 'OTP must be exactly 6 digits'),
 });
 
-
 export const setPinValidationSchema = z.object({
   pinSetupId: z.string().min(1, 'Pin Setup ID is required'),
   newPin: z.string().regex(/^\d{6}$/, 'PIN must be exactly 6 digits'),
@@ -26,27 +25,21 @@ export const setPinValidationSchema = z.object({
 
 const loginValidationSchema = z
   .object({
-    email: z
-      .string()
-      .email("Invalid email format")
-      .optional(),
+    email: z.string().email('Invalid email format').optional(),
 
-    phone: z
-      .string()
-      .min(10, "Phone number is invalid")
-      .optional(),
+    phone: z.string().min(10, 'Phone number is invalid').optional(),
 
-    password: z
-      .string()
-      .min(6, "Password must be at least 6 characters"),
+    password: z.string().min(6, 'Password must be at least 6 characters'),
   })
-  .refine(
-    (data) => data.email || data.phone,
-    {
-      message: "Email or phone number is required",
-      path: ["email"],
-    }
-  );
+  .refine((data) => data.email || data.phone, {
+    message: 'Email or phone number is required',
+    path: ['email'],
+  });
+
+const logoutAlValidationSchema = z.object({
+  deviceSwitchId: z.string().min(1, 'device switch ID is required'),
+  newPin: z.string().regex(/^\d{6}$/, 'PIN must be exactly 6 digits'),
+});
 
 export const AuthValidation = {
   registerValidationSchema,
@@ -54,4 +47,5 @@ export const AuthValidation = {
   verifyOtpValidationSchema,
   loginValidationSchema,
   setPinValidationSchema,
+  logoutAlValidationSchema
 };

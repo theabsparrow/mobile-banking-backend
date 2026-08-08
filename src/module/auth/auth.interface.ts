@@ -23,3 +23,8 @@ export type TLoginData = {
   phone?: string;
   password: string;
 }
+
+export type TLogoutAll = {
+  deviceSwitchId: string
+  pin: string
+}

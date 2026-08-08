@@ -1,4 +1,6 @@
 import { router } from '../../config/express.js';
+import { auth } from '../../middlewire/auth.js';
+import { deviceSwitchMiddleware } from '../../middlewire/deviceSwitchMiddlewire.js';
 import {
   otpRequestMiddlewire,
   type TResendOtpRequestBody,
@@ -84,6 +86,44 @@ router.post(
     },
   }),
   validateRequest(AuthValidation.loginValidationSchema),
+  AuthController.login
+);
+
+router.post(
+  '/logout-all',
+  rateLimiter({
+    keyPrefix: 'rl:logout-all:',
+    windowMs: 5 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req) => {
+      const body = req.body as {
+        deviceSwitchId?: string;
+      };
+
+      return `${req.ip}:${body.deviceSwitchId}`;
+    },
+  }),
+  deviceSwitchMiddleware,
+  validateRequest(AuthValidation.logoutAlValidationSchema),
+  AuthController.login
+);
+
+router.post(
+  '/logout',
+  rateLimiter({
+    keyPrefix: 'rl:logout-all:',
+    windowMs: 5 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req) => {
+      const body = req.body as {
+        deviceSwitchId?: string;
+      };
+
+      return `${req.ip}:${body.deviceSwitchId}`;
+    },
+  }),
+  auth(),
+  validateRequest(AuthValidation.logoutAlValidationSchema),
   AuthController.login
 );
 
