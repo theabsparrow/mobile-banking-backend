@@ -7,9 +7,11 @@ import {
 } from '../../middlewire/otpRequestMiddlewire.js';
 import { pinSetupMiddleware } from '../../middlewire/pinSetup.js';
 import { rateLimiter } from '../../middlewire/rateLimiter.js';
+import { refreshAuth } from '../../middlewire/refreshAuth.js';
 import validateRequest from '../../middlewire/validateRequest.js';
 import { verifyOtpMiddlewire } from '../../middlewire/verifyOtpMiddlewire.js';
 import { AuthController } from './auth.controller.js';
+import type { TJwtPayload } from './auth.utills.js';
 import { AuthValidation } from './auth.validation.js';
 
 router.post(
@@ -99,7 +101,6 @@ router.post(
       const body = req.body as {
         deviceSwitchId?: string;
       };
-
       return `${req.ip}:${body.deviceSwitchId}`;
     },
   }),
@@ -110,20 +111,31 @@ router.post(
 
 router.post(
   '/logout',
+  auth(),
   rateLimiter({
-    keyPrefix: 'rl:logout-all:',
+    keyPrefix: 'rl:logout:',
     windowMs: 5 * 60 * 1000,
-    max: 5,
+    max: 10,
     keyGenerator: (req) => {
-      const body = req.body as {
-        deviceSwitchId?: string;
-      };
-
-      return `${req.ip}:${body.deviceSwitchId}`;
+      const user = req.user as TJwtPayload;
+      return `${user.userId}:${user.sessionId}`;
     },
   }),
-  auth(),
-  validateRequest(AuthValidation.logoutAlValidationSchema),
+  AuthController.login
+);
+
+router.post(
+  '/refresh-token',
+  refreshAuth(),
+  rateLimiter({
+    keyPrefix: 'rl:refresh-token:',
+    windowMs: 5 * 60 * 1000,
+    max: 10,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return `${user.userId}:${user.sessionId}`;
+    },
+  }),
   AuthController.login
 );
 

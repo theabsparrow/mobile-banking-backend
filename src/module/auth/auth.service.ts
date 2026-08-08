@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/require-await */
 import { prisma } from '../../config/prismaClient.js';
 import type { TLoginData, TLogoutAll, TPinData, TUser } from './auth.interface.js';
 import { compareData, hashData } from '../../utills/hashData.js';
@@ -203,7 +204,7 @@ export const setPin = async (payload: TPinData, userId: string) => {
 /**
  * Login user.
  */
-const loginUser = async (payload: TLoginData, req: Request) => {
+const login = async (payload: TLoginData, req: Request) => {
   const { email, phone, password } = payload;
   const parser = new UAParser(req.headers['user-agent']);
   const uaResult = parser.getResult();
@@ -361,12 +362,27 @@ const logout = async (sessionId: string) => {
   });
 };
 
+const accessToken = async (user: TJwtPayload) => {
+  const jwtPayload: TJwtPayload = {
+    userId: user?.userId,
+    userRole: user?.userRole,
+    sessionId: user?.sessionId,
+  };
+  const newAccessToken = createToken(
+    jwtPayload,
+    config.jwt_access_secret as string,
+    config.jwt_access_expires_in as string
+  );
+  return newAccessToken;
+};
+
 export const AuthService = {
   registerUser,
   resendOtp,
   verifyOtp,
   setPin,
-  loginUser,
+  login,
   logoutFromAll,
   logout,
+  accessToken,
 };

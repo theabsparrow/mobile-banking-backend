@@ -6,15 +6,16 @@ import { sendResponse } from '../../utills/sendResponse.js';
 import type { TLoginData, TLogoutAll, TPinData, TUser, TVerifyOtpBody } from './auth.interface.js';
 import { AuthService } from './auth.service.js';
 import type { TJwtPayload } from './auth.utills.js';
+import config from '../../config/index.js';
+import { StatusCodes } from 'http-status-codes';
 
 type TUserDataBody = { userId: string; otpHash?: string };
 
 const register = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const data = req.body as TUser;
   const result = await AuthService.registerUser(data);
-
   sendResponse(res, {
-    statusCode: 201,
+    statusCode: StatusCodes.OK,
     success: true,
     message: 'User registered successfully. An OTP code has been sent to your email.',
     meta: { page: 1, limit: 10, total: 1, totalPage: 1 },
@@ -27,7 +28,7 @@ const resendOtp = catchAsync(async (req: Request, res: Response, next: NextFunct
   const { userId } = req.otpUser as TUserDataBody;
   await AuthService.resendOtp(verificationId, userId);
   sendResponse(res, {
-    statusCode: 200,
+    statusCode: StatusCodes.OK,
     success: true,
     message: 'A new OTP code has been successfully generated and sent to your email.',
   });
@@ -39,7 +40,7 @@ const verifyOtp = catchAsync(async (req: Request, res: Response, next: NextFunct
   const result = await AuthService.verifyOtp({ verificationId, userId, otp, otpHash: otpHash! });
 
   sendResponse(res, {
-    statusCode: 200,
+    statusCode: StatusCodes.OK,
     success: true,
     message: 'Email verified successfully. Now set you six digit pin.',
     data: result,
@@ -51,7 +52,7 @@ const setPin = catchAsync(async (req: Request, res: Response, next: NextFunction
   const { userId } = req.otpUser as TUserDataBody;
   const result = await AuthService.setPin(data, userId);
   sendResponse(res, {
-    statusCode: 200,
+    statusCode: StatusCodes.OK,
     success: true,
     message: 'Pin has been set successfully. Now set you six digit pin.',
     data: result,
@@ -60,7 +61,23 @@ const setPin = catchAsync(async (req: Request, res: Response, next: NextFunction
 
 const login = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const data = req.body as TLoginData;
-  const result = await AuthService.loginUser(data, req);
+  const result = await AuthService.login(data, req);
+
+  if ('accessToken' in result && 'refreshToken' in result) {
+    res.cookie('accessToken', result.accessToken, {
+      httpOnly: true,
+      secure: config.node_env === 'production',
+      sameSite: 'lax',
+      maxAge: 1 * 60 * 1000, // 1 minute
+    });
+
+    res.cookie('refreshToken', result.refreshToken, {
+      httpOnly: true,
+      secure: config.node_env === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+  }
 
   sendResponse(res, {
     statusCode: 200,
@@ -93,6 +110,23 @@ const logout = catchAsync(async (req: Request, res: Response, next: NextFunction
   });
 });
 
+const accessToken = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const user = req.user as TJwtPayload;
+  const result = await AuthService.accessToken(user);
+  res.cookie('accessToken', accessToken, {
+    httpOnly: true,
+    secure: config.node_env === 'production',
+    sameSite: 'lax',
+    maxAge: 1 * 60 * 1000,
+  });
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Access token refreshed successfully.',
+    data: result,
+  });
+});
+
 export const AuthController = {
   register,
   resendOtp,
@@ -101,4 +135,5 @@ export const AuthController = {
   login,
   logoutFromAll,
   logout,
+  accessToken,
 };

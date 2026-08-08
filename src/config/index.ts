@@ -4,6 +4,7 @@ import path from 'path';
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
 export default {
+  node_env: process.env.NODE_ENV,
   prisma_database_url: process.env.PRISMA_DATABASE_URL,
   mongodb_database_url: process.env.MONGODB_DATABASE_URL,
   client_url: process.env.CLIENT_URL,
