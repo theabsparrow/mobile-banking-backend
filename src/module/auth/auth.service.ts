@@ -36,14 +36,17 @@ type TVerifyOtpData = {
 
 // register a new user
 const registerUser = async (payload: TUser) => {
-  const { email, phone, password } = payload;
+  const { email, phone, password, confirmPassword } = payload;
+  if(password !== confirmPassword){
+     throw new AppError(StatusCodes.BAD_REQUEST,'password and the confirm password is not same.');
+  }
 
   // Check if email already exists
   const existingEmailUser = await prisma.user.findUnique({
     where: { email },
   });
   if (existingEmailUser) {
-    throw new Error('Email is already registered.');
+    throw new AppError(StatusCodes.CONFLICT,'Email is already registered.');
   }
 
   // Check if phone already exists
@@ -52,7 +55,7 @@ const registerUser = async (payload: TUser) => {
       where: { phone },
     });
     if (existingPhoneUser) {
-      throw new Error('Phone number is already registered.');
+      throw new AppError(StatusCodes.CONFLICT,'Phone number is already registered.');
     }
   }
 

@@ -4,6 +4,7 @@ export type TUser = {
   email: string;
   phone?: string;
   password: string;
+  confirmPassword: string
   role?: Role;
 };
 
