@@ -122,7 +122,7 @@ const logout = catchAsync(async (req: Request, res: Response, next: NextFunction
 const accessToken = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const user = req.user as TJwtPayload;
   const result = await AuthService.accessToken(user);
-  res.cookie('accessToken', accessToken, {
+  res.cookie('accessToken', result, {
     httpOnly: true,
     secure: config.node_env === 'production',
     sameSite: 'lax',

@@ -43,7 +43,7 @@ const loginValidationSchema = z
 
 const logoutAlValidationSchema = z.object({
   deviceSwitchId: z.string().min(1, 'device switch ID is required'),
-  newPin: z.string().regex(/^\d{6}$/, 'PIN must be exactly 6 digits'),
+  pin: z.string().regex(/^\d{6}$/, 'PIN must be exactly 6 digits'),
 });
 
 const forgetPasswordValidationSchema = z

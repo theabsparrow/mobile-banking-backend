@@ -7,11 +7,11 @@ import { verifyToken } from '../module/auth/auth.utills.js';
 import config from '../config/index.js';
 import { prisma } from '../config/prismaClient.js';
 import type { Role } from '@prisma/client';
-import { hashData } from '../utills/hashData.js';
+import { compareData } from '../utills/hashData.js';
 
 export const refreshAuth = (...requiredRoles: Role[]) => {
   return catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-    const token = req.cookies.accessToken || req.headers.authorization;
+    const token = req.cookies.refreshToken || req.headers.authorization;
 
     if (!token) {
       throw new AppError(StatusCodes.UNAUTHORIZED, 'Refresh token is required.');
@@ -26,7 +26,6 @@ export const refreshAuth = (...requiredRoles: Role[]) => {
     }
 
     const { userId, userRole, sessionId } = decoded;
-    const refreshTokenHash = await hashData(token as string);
 
     const isUserExists = await prisma.user.findFirst({
       where: {
@@ -55,8 +54,8 @@ export const refreshAuth = (...requiredRoles: Role[]) => {
     if (session?.status !== 'ACTIVE') {
       throw new AppError(StatusCodes.UNAUTHORIZED, 'Session has been revoked.');
     }
-
-    if (session?.refreshTokenHash !== refreshTokenHash) {
+    const isPasswordMatched = await compareData(token as string, session?.refreshTokenHash);
+    if (!isPasswordMatched) {
       throw new AppError(StatusCodes.UNAUTHORIZED, 'Invalid refresh token.');
     }
 

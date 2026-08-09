@@ -56,6 +56,7 @@ export const verifyOtpMiddlewire = (...requiredPurpose: TOtpPurpose[]) => {
     req.otpUser = {
       userId: otp.userId,
       otpHash: otp.otpHash,
+      purpose: otp.purpose,
     };
 
     next();

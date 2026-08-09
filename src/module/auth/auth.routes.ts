@@ -5,6 +5,7 @@ import {
   otpRequestMiddlewire,
   type TResendOtpRequestBody,
 } from '../../middlewire/otpRequestMiddlewire.js';
+import { passwordResetMiddleware } from '../../middlewire/passwordResetMiddlewire.js';
 import { pinSetupMiddleware } from '../../middlewire/pinSetup.js';
 import { rateLimiter } from '../../middlewire/rateLimiter.js';
 import { refreshAuth } from '../../middlewire/refreshAuth.js';
@@ -106,7 +107,7 @@ router.post(
   }),
   deviceSwitchMiddleware,
   validateRequest(AuthValidation.logoutAlValidationSchema),
-  AuthController.login
+  AuthController.logoutFromAll
 );
 
 router.post(
@@ -121,7 +122,7 @@ router.post(
       return `${user.userId}:${user.sessionId}`;
     },
   }),
-  AuthController.login
+  AuthController.logout
 );
 
 router.post(
@@ -136,7 +137,7 @@ router.post(
       return `${user.userId}:${user.sessionId}`;
     },
   }),
-  AuthController.login
+  AuthController.accessToken
 );
 
 router.post(
@@ -171,6 +172,7 @@ router.post(
       return `${req.ip}:${body.passwordResetId || 'unknown'}`;
     },
   }),
+  passwordResetMiddleware,
   validateRequest(AuthValidation.resetPasswordValidationSchema),
   AuthController.resetPassword
 );
