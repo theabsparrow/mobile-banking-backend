@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 
 import type { JwtPayload } from 'jsonwebtoken';
+import type { TOtpPurpose } from '../utills/sendOtpFlow.js';
 
 declare global {
   namespace Express {
@@ -8,7 +9,8 @@ declare global {
       user: JwtPayload;
       otpUser?: {
         userId: string;
-        otpHash?: string
+        otpHash?: string;
+        purpose?: TOtpPurpose;
       };
     }
   }

@@ -13,18 +13,29 @@ export type TVerifyOtpBody = {
 };
 
 export type TPinData = {
-  pinSetupId: string
+  pinSetupId: string;
   newPin: string;
   confirmPin: string;
-}
+};
 
 export type TLoginData = {
   email?: string;
   phone?: string;
   password: string;
-}
+};
 
 export type TLogoutAll = {
-  deviceSwitchId: string
-  pin: string
-}
+  deviceSwitchId: string;
+  pin: string;
+};
+
+export type TForgetPassword = {
+  email?: string;
+  phone?: string;
+};
+
+export type TResetPassword = {
+  newPassword: string;
+  confirmNewPassword: string;
+  passwordResetId: string;
+};

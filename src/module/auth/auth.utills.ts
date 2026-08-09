@@ -40,3 +40,8 @@ export const deviceSwitchSessionClear = async (deviceSwitchId: string) => {
 export const verifyToken = (token: string, secret: string) => {
   return jwt.verify(token, secret);
 };
+
+
+export const resetPasswordSessionClear = async (passwordResetId: string) => {
+  await redisClient.del(`password:reset:${passwordResetId}`);
+};

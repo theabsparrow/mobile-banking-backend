@@ -3,13 +3,22 @@ import type { NextFunction, Request, Response } from 'express';
 import type { TResendOtpRequestBody } from '../../middlewire/otpRequestMiddlewire.js';
 import { catchAsync } from '../../utills/catchAsync.js';
 import { sendResponse } from '../../utills/sendResponse.js';
-import type { TLoginData, TLogoutAll, TPinData, TUser, TVerifyOtpBody } from './auth.interface.js';
+import type {
+  TForgetPassword,
+  TLoginData,
+  TLogoutAll,
+  TPinData,
+  TResetPassword,
+  TUser,
+  TVerifyOtpBody,
+} from './auth.interface.js';
 import { AuthService } from './auth.service.js';
 import type { TJwtPayload } from './auth.utills.js';
 import config from '../../config/index.js';
 import { StatusCodes } from 'http-status-codes';
+import type { TOtpPurpose } from '../../utills/sendOtpFlow.js';
 
-type TUserDataBody = { userId: string; otpHash?: string };
+type TUserDataBody = { userId: string; otpHash?: string; purpose?: TOtpPurpose };
 
 const register = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const data = req.body as TUser;
@@ -25,8 +34,8 @@ const register = catchAsync(async (req: Request, res: Response, next: NextFuncti
 
 const resendOtp = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const { verificationId } = req.body as TResendOtpRequestBody;
-  const { userId } = req.otpUser as TUserDataBody;
-  await AuthService.resendOtp(verificationId, userId);
+  const { userId, purpose } = req.otpUser as TUserDataBody;
+  await AuthService.resendOtp({ verificationId, id: userId, purpose: purpose! });
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
@@ -127,6 +136,28 @@ const accessToken = catchAsync(async (req: Request, res: Response, next: NextFun
   });
 });
 
+const forgetPassword = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const data = req.body as TForgetPassword;
+  const result = await AuthService.forgetPassword(data);
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'If an account exists with this information, a verification code has been sent.',
+    data: result,
+  });
+});
+
+const resetPassword = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = req.user as TUserDataBody;
+  const data = req.body as TResetPassword;
+  await AuthService.resetPassword(data, userId);
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'password reset successfully',
+  });
+});
+
 export const AuthController = {
   register,
   resendOtp,
@@ -136,4 +167,6 @@ export const AuthController = {
   logoutFromAll,
   logout,
   accessToken,
+  forgetPassword,
+  resetPassword,
 };

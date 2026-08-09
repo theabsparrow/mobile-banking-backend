@@ -3,12 +3,12 @@ import { catchAsync } from '../utills/catchAsync.js';
 import AppError from '../error/AppError.js';
 import { redisClient } from '../redis/redis.client.js';
 import { StatusCodes } from 'http-status-codes';
-import type { TRedisData } from '../utills/sendOtpFlow.js';
+import type { TOtpPurpose, TRedisData } from '../utills/sendOtpFlow.js';
 import type { TVerifyOtpBody } from '../module/auth/auth.interface.js';
+import type { TSessionRedisData } from './otpRequestMiddlewire.js';
 
-
-export const verifyOtpMiddlewire = catchAsync(
-  async (req: Request, res: Response, next: NextFunction) => {
+export const verifyOtpMiddlewire = (...requiredPurpose: TOtpPurpose[]) => {
+  return catchAsync(async (req: Request, res: Response, next: NextFunction) => {
     // 1. verificationId check
     const { verificationId } = req.body as TVerifyOtpBody;
     if (!verificationId) {
@@ -21,13 +21,26 @@ export const verifyOtpMiddlewire = catchAsync(
       throw new AppError(StatusCodes.GATEWAY_TIMEOUT, 'Invalid or expired verification session');
     }
 
+    const session = JSON.parse(sessionData) as TSessionRedisData;
+    if (requiredPurpose && requiredPurpose.includes(session?.purpose)) {
+      throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid verification session');
+    }
+
     // 3. OTP data check
     const otpData = await redisClient.get(`otp:verification:${verificationId}`);
     if (!otpData) {
       throw new AppError(StatusCodes.BAD_REQUEST, 'OTP expired. Please request a new OTP');
     }
 
-    const { userId, otpHash } = JSON.parse(otpData) as TRedisData;
+    const otp = JSON.parse(otpData) as TRedisData;
+    if (otp.userId !== session.userId) {
+      throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid verification session');
+    }
+
+    // 6. Check OTP purpose
+    if (otp.purpose !== session?.purpose) {
+      throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid verification session');
+    }
 
     // 4. Check wrong attempt limit
     const attemptKey = `otp:attempt:${verificationId}`;
@@ -41,10 +54,10 @@ export const verifyOtpMiddlewire = catchAsync(
 
     // attach data
     req.otpUser = {
-      userId,
-      otpHash
+      userId: otp.userId,
+      otpHash: otp.otpHash,
     };
 
     next();
-  }
-);
+  });
+};

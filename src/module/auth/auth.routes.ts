@@ -52,7 +52,7 @@ router.post(
       return body.verificationId;
     },
   }),
-  verifyOtpMiddlewire,
+  verifyOtpMiddlewire("WHILE_REGISTRATION", "WHILE_LOGIN", "FORGET_PASS"),
   validateRequest(AuthValidation.verifyOtpValidationSchema),
   AuthController.verifyOtp
 );
@@ -138,5 +138,42 @@ router.post(
   }),
   AuthController.login
 );
+
+router.post(
+  '/forget-password',
+  rateLimiter({
+    keyPrefix: 'rl:forget-password:',
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req) => {
+      const body = req.body as {
+        email?: string;
+        phone?: string;
+      };
+      return `${req.ip}:${body.email || body.phone || 'unknown'}`;
+    },
+  }),
+  validateRequest(AuthValidation.forgetPasswordValidationSchema),
+  AuthController.forgetPassword
+);
+
+router.post(
+  '/reset-password',
+   rateLimiter({
+    keyPrefix: 'rl:reset-password:',
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req) => {
+      const body = req.body as {
+        passwordResetId?: string;
+      };
+
+      return `${req.ip}:${body.passwordResetId || 'unknown'}`;
+    },
+  }),
+  validateRequest(AuthValidation.resetPasswordValidationSchema),
+  AuthController.resetPassword
+);
+
 
 export const authRouts = router;

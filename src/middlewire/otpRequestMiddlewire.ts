@@ -3,17 +3,18 @@ import { catchAsync } from '../utills/catchAsync.js';
 import AppError from '../error/AppError.js';
 import { redisClient } from '../redis/redis.client.js';
 import { StatusCodes } from 'http-status-codes';
+import type { TOtpPurpose } from '../utills/sendOtpFlow.js';
 
 export type TResendOtpRequestBody = {
   verificationId: string;
 };
 
-type TSessionRedisData = {
+export type TSessionRedisData = {
   userId: string;
+  purpose: TOtpPurpose;
 };
 
-export const otpRequestMiddlewire = catchAsync(
-  async (req: Request, res: Response, next: NextFunction) => {
+export const otpRequestMiddlewire = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
     // check if the verificationId is present in the request body
 
     const { verificationId } = req.body as TResendOtpRequestBody;
@@ -27,9 +28,11 @@ export const otpRequestMiddlewire = catchAsync(
       throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid or expired verification session');
     }
 
-    const { userId } = JSON.parse(sessionData) as TSessionRedisData;
+    const session = JSON.parse(sessionData) as TSessionRedisData;
+   
+
     // check if a user is ban for submitting wrong otp
-    const blocked = await redisClient.exists(`otp:block:${userId}`);
+    const blocked = await redisClient.exists(`otp:block:${session?.userId}`);
     if (blocked) {
       throw new AppError(
         StatusCodes.FORBIDDEN,
@@ -38,7 +41,7 @@ export const otpRequestMiddlewire = catchAsync(
     }
 
     // check if the user has exceeded the OTP request limit (5 requests in 24 hours)
-    const requestKey = `otp:request:${userId}`;
+    const requestKey = `otp:request:${session?.userId}`;
     const requestCount = await redisClient.get(requestKey);
     if (requestCount && Number(requestCount) >= 5) {
       throw new AppError(
@@ -58,9 +61,10 @@ export const otpRequestMiddlewire = catchAsync(
 
     // set user id to the req object
     req.otpUser = {
-      userId,
+      userId: session?.userId,
+      purpose: session?.purpose,
     };
 
     next();
-  }
-);
+  });
+;

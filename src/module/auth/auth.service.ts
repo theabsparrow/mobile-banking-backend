@@ -1,13 +1,20 @@
 /* eslint-disable @typescript-eslint/require-await */
 import { prisma } from '../../config/prismaClient.js';
-import type { TLoginData, TLogoutAll, TPinData, TUser } from './auth.interface.js';
+import type {
+  TForgetPassword,
+  TLoginData,
+  TLogoutAll,
+  TPinData,
+  TResetPassword,
+  TUser,
+} from './auth.interface.js';
 import { compareData, hashData } from '../../utills/hashData.js';
-import { sendOtpFlow } from '../../utills/sendOtpFlow.js';
+import { sendOtpFlow, type TOtpPurpose } from '../../utills/sendOtpFlow.js';
 import AppError from '../../error/AppError.js';
 import { StatusCodes } from 'http-status-codes';
 import { handleOtpFailedAttempt } from '../../utills/otpAttempt.js';
 import { clearOtpSession, clearPinSession } from '../../utills/clearOtpSession.js';
-import { setPinSession } from '../../utills/setPinSession.js';
+import { passwordReset, setPinSession } from '../../utills/setPinSession.js';
 import config from '../../config/index.js';
 import type { Request } from 'express';
 import { UAParser } from 'ua-parser-js';
@@ -15,6 +22,7 @@ import {
   createToken,
   deviceSwitchSession,
   deviceSwitchSessionClear,
+  resetPasswordSessionClear,
   type TJwtPayload,
 } from './auth.utills.js';
 
@@ -23,11 +31,10 @@ type TVerifyOtpData = {
   userId: string;
   otp: string;
   otpHash: string;
+  purpose?: TOtpPurpose;
 };
 
-/**
- * Register a new user.
- */
+// register a new user
 const registerUser = async (payload: TUser) => {
   const { email, phone, password } = payload;
 
@@ -59,13 +66,24 @@ const registerUser = async (payload: TUser) => {
   });
 
   // Generate and send OTP
-  const registerData = await sendOtpFlow({ email: user?.email, userId: user?.id });
+  const registerData = await sendOtpFlow({
+    email: user?.email,
+    userId: user?.id,
+    purpose: 'WHILE_REGISTRATION',
+  });
   return registerData?.verificationId;
 };
 
 //Request a new OTP for an unverified user.
-
-const resendOtp = async (verificationId: string, id: string) => {
+const resendOtp = async ({
+  verificationId,
+  id,
+  purpose,
+}: {
+  verificationId: string;
+  id: string;
+  purpose: TOtpPurpose;
+}) => {
   if (!verificationId) {
     throw new Error('Verification ID is required.');
   }
@@ -94,12 +112,13 @@ const resendOtp = async (verificationId: string, id: string) => {
     email: user?.email,
     userId: user?.id,
     verifyId: verificationId,
+    purpose,
   });
   return registerData?.verificationId;
 };
 
 // verify otp
-const verifyOtp = async ({ verificationId, userId, otp, otpHash }: TVerifyOtpData) => {
+const verifyOtp = async ({ verificationId, userId, otp, otpHash, purpose }: TVerifyOtpData) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
   });
@@ -124,31 +143,38 @@ const verifyOtp = async ({ verificationId, userId, otp, otpHash }: TVerifyOtpDat
     throw new AppError(400, 'Invalid OTP');
   }
 
+  if (purpose && purpose === 'FORGET_PASS') {
+    // clear redis otp session
+    const passwordResetId = await passwordReset(userId);
+    await clearOtpSession(verificationId);
+    return passwordResetId;
+  } else {
+    const updatedUser = await prisma.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        isVerified: true,
+      },
+      select: {
+        id: true,
+        isVerified: true,
+      },
+    });
+
+    // clear redis otp session
+    await clearOtpSession(verificationId);
+
+    // pin setup id settting
+    const pinSetupId = await setPinSession({ userId: updatedUser?.id });
+    return pinSetupId;
+  }
+
   // Update user to verified
-  const updatedUser = await prisma.user.update({
-    where: {
-      id: user.id,
-    },
-    data: {
-      isVerified: true,
-    },
-    select: {
-      id: true,
-      isVerified: true,
-    },
-  });
-
-  // clear redis otp session
-  await clearOtpSession(verificationId);
-
-  // pin setup id settting
-  const pinSetupId = await setPinSession(user?.id);
-
-  return { ...updatedUser, pinSetupId };
 };
 
 // set pit
-export const setPin = async (payload: TPinData, userId: string) => {
+const setPin = async (payload: TPinData, userId: string) => {
   const { newPin, confirmPin, pinSetupId } = payload;
   if (newPin !== confirmPin) {
     throw new AppError(StatusCodes.BAD_REQUEST, 'pin not matched');
@@ -201,9 +227,7 @@ export const setPin = async (payload: TPinData, userId: string) => {
   return updatedUser;
 };
 
-/**
- * Login user.
- */
+// login
 const login = async (payload: TLoginData, req: Request) => {
   const { email, phone, password } = payload;
   const parser = new UAParser(req.headers['user-agent']);
@@ -228,7 +252,11 @@ const login = async (payload: TLoginData, req: Request) => {
 
   // 4. Email verification check
   if (!user.isVerified) {
-    const registerData = await sendOtpFlow({ email: user?.email, userId: user?.id });
+    const registerData = await sendOtpFlow({
+      email: user?.email,
+      userId: user?.id,
+      purpose: 'WHILE_LOGIN',
+    });
     return {
       requiresEmailVerification: true,
       verificationId: registerData?.verificationId,
@@ -237,7 +265,7 @@ const login = async (payload: TLoginData, req: Request) => {
 
   // 5. PIN setup check
   if (!user.isPinSet) {
-    const pinSetupId = await setPinSession(user?.id);
+    const pinSetupId = await setPinSession({ userId: user?.id });
     return {
       requiresPinSetup: true,
       pinSetupId,
@@ -306,6 +334,7 @@ const login = async (payload: TLoginData, req: Request) => {
   return { accessToken, refreshToken, sessionId: result.id };
 };
 
+// logout from all device
 const logoutFromAll = async (userId: string, payload: TLogoutAll) => {
   const { deviceSwitchId, pin } = payload;
 
@@ -350,6 +379,7 @@ const logoutFromAll = async (userId: string, payload: TLogoutAll) => {
   await deviceSwitchSessionClear(deviceSwitchId);
 };
 
+// logout
 const logout = async (sessionId: string) => {
   await prisma.session.update({
     where: {
@@ -362,6 +392,7 @@ const logout = async (sessionId: string) => {
   });
 };
 
+// accesstoken
 const accessToken = async (user: TJwtPayload) => {
   const jwtPayload: TJwtPayload = {
     userId: user?.userId,
@@ -376,6 +407,92 @@ const accessToken = async (user: TJwtPayload) => {
   return newAccessToken;
 };
 
+// forget password
+const forgetPassword = async (data: TForgetPassword) => {
+  const { email, phone } = data;
+
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])],
+    },
+  });
+
+  // Don't reveal whether the account exists
+  if (!user) {
+    return {
+      message: 'If an account exists with this information, a verification code has been sent.',
+    };
+  }
+
+  // Account must be active
+  if (user.status !== 'ACTIVE') {
+    return {
+      message: 'If an account exists with this information, a verification code has been sent.',
+    };
+  }
+
+  const verificationId = await sendOtpFlow({
+    email: user.email,
+    userId: user.id,
+    purpose: 'FORGET_PASS',
+  });
+
+  return {
+    verificationId,
+    requiresEmailVerification: !user.isVerified,
+  };
+};
+
+// set new password
+const resetPassword = async (payload: TResetPassword, userId: string) => {
+  const { passwordResetId, newPassword, confirmNewPassword } = payload;
+  if (newPassword !== confirmNewPassword) {
+    throw new AppError(StatusCodes.BAD_REQUEST, 'New password and confirm password do not match.');
+  }
+
+  // 2. Find user
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+  });
+
+  if (!user) {
+    throw new AppError(StatusCodes.NOT_FOUND, 'User not found.');
+  }
+
+  // 3. Check account status
+  if (user.status !== 'ACTIVE') {
+    throw new AppError(StatusCodes.FORBIDDEN, 'Your account is currently inactive.');
+  }
+
+  const hashedPassword = await hashData(newPassword);
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        password: hashedPassword,
+      },
+    });
+
+    await tx.session.updateMany({
+      where: {
+        userId: user.id,
+        status: 'ACTIVE',
+      },
+      data: {
+        status: 'REVOKED',
+        revokedAt: new Date(),
+      },
+    });
+  });
+
+  // 7. Clear password-reset Redis session
+  await resetPasswordSessionClear(passwordResetId);
+};
+
 export const AuthService = {
   registerUser,
   resendOtp,
@@ -385,4 +502,6 @@ export const AuthService = {
   logoutFromAll,
   logout,
   accessToken,
+  forgetPassword,
+  resetPassword,
 };
