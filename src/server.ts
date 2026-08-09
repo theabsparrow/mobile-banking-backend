@@ -33,8 +33,9 @@ process.on('unhandledRejection', async () => {
     server.close(() => {
       process.exit(1);
     });
+  } else {
+    process.exit(1);
   }
-  process.exit(1);
 });
 
 process.on('uncaughtException', () => {

@@ -22,7 +22,7 @@ export const verifyOtpMiddlewire = (...requiredPurpose: TOtpPurpose[]) => {
     }
 
     const session = JSON.parse(sessionData) as TSessionRedisData;
-    if (requiredPurpose && requiredPurpose.includes(session?.purpose)) {
+    if (requiredPurpose && !requiredPurpose.includes(session?.purpose)) {
       throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid verification session');
     }
 

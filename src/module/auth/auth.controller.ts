@@ -45,8 +45,14 @@ const resendOtp = catchAsync(async (req: Request, res: Response, next: NextFunct
 
 const verifyOtp = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const { verificationId, otp } = req.body as TVerifyOtpBody;
-  const { userId, otpHash } = req.otpUser as TUserDataBody;
-  const result = await AuthService.verifyOtp({ verificationId, userId, otp, otpHash: otpHash! });
+  const { userId, otpHash, purpose } = req.otpUser as TUserDataBody;
+  const result = await AuthService.verifyOtp({
+    verificationId,
+    userId,
+    otp,
+    otpHash: otpHash!,
+    ...(purpose ? { purpose } : {}),
+  });
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -148,7 +154,7 @@ const forgetPassword = catchAsync(async (req: Request, res: Response, next: Next
 });
 
 const resetPassword = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-  const { userId } = req.user as TUserDataBody;
+  const { userId } = req.otpUser as TUserDataBody;
   const data = req.body as TResetPassword;
   await AuthService.resetPassword(data, userId);
   sendResponse(res, {

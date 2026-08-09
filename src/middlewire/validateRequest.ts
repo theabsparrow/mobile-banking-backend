@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+
 
 import type { NextFunction, Request, Response } from "express";
 import { catchAsync } from "../utills/catchAsync.js";
@@ -10,7 +10,8 @@ const validateRequest = (schema: ZodTypeAny) => {
       ...req.body,
       ...req.cookies,
     };
-    await schema.parseAsync(data);
+    const parsed = await schema.parseAsync(data);
+    req.body = parsed;
     next();
   });
 };
