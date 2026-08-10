@@ -1,10 +1,12 @@
 import type { Server } from 'http';
+import http from 'http';
 import mongoose from 'mongoose';
 
 import { app } from './app.js';
 import config from './config/index.js';
 import { prisma } from './config/prismaClient.js';
 import { connectRedis, disconnectRedis } from './redis/redis.client.js';
+import { initializeSocket } from './socket/server.js';
 
 let server: Server;
 
@@ -13,6 +15,10 @@ async function main() {
     await mongoose.connect(config.mongodb_database_url as string);
     await prisma.$connect();
     await connectRedis();
+
+    server = http.createServer(app);
+    initializeSocket(server);
+
     server = app.listen(config.port, () => {
       console.log(`server is running on port ${config.port as string} 😎`);
     });
