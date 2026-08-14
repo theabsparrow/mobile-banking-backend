@@ -1,5 +1,4 @@
-import z from "zod/v3";
-
+import z from 'zod/v3';
 
 const passwordSchema = z
   .string()
@@ -8,16 +7,10 @@ const passwordSchema = z
   .regex(/[a-z]/, 'Password must contain at least 1 lowercase letter')
   .regex(/[A-Z]/, 'Password must contain at least 1 uppercase letter')
   .regex(/[0-9]/, 'Password must contain at least 1 number')
-  .regex(
-    /[^A-Za-z0-9]/,
-    'Password must contain at least 1 special character'
-  );
+  .regex(/[^A-Za-z0-9]/, 'Password must contain at least 1 special character');
 
 const createUserValidationSchema = z.object({
-  email: z
-    .string()
-    .min(1, 'Email is required')
-    .email('Invalid email format'),
+  email: z.string().min(1, 'Email is required').email('Invalid email format'),
 
   phone: z
     .string()
@@ -34,6 +27,25 @@ const createUserValidationSchema = z.object({
   password: passwordSchema.optional(),
 });
 
+const updateUserValidationSchema = z.object({
+  name: z
+    .string()
+    .min(2, 'Name must be at least 2 characters long')
+    .max(100, 'Name must not exceed 100 characters')
+    .optional(),
+
+  email: z.string().email('Invalid email format').optional(),
+
+  phone: z
+    .string()
+    .min(10, 'Phone number must be at least 10 characters')
+    .max(15, 'Phone number must not exceed 15 characters')
+    .optional(),
+
+  address: z.string().max(255, 'Address must not exceed 255 characters').optional(),
+});
+
 export const userValidation = {
   createUserValidationSchema,
+  updateUserValidationSchema,
 };

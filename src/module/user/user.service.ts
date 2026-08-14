@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { prisma } from '../../config/prismaClient.js';
 import AppError from '../../error/AppError.js';
-import { invalidateAuthUserCache, type TJwtPayload } from '../auth/auth.utills.js';
+import { invalidateAuthUserCache } from '../auth/auth.utills.js';
 import type { TCreateUser, TQuery, TUser } from './user.interface.js';
 import config from '../../config/index.js';
 import { hashData } from '../../utills/hashData.js';
@@ -9,7 +9,7 @@ import { QueryBuilder } from '../../builder/QueryBuilder.js';
 import { sendOtpFlow } from '../../utills/sendOtpFlow.js';
 
 // cretae a users by agent or admin
-const createUser = async (payload: TCreateUser, creator: TJwtPayload) => {
+const createUser = async (payload: TCreateUser, userId: string) => {
   const existingEmail = await prisma.user.findUnique({
     where: {
       email: payload.email,
@@ -47,7 +47,7 @@ const createUser = async (payload: TCreateUser, creator: TJwtPayload) => {
     email: payload.email,
     password: hashedPassword,
     name: payload.name ?? payload.email.split('@')[0] ?? '',
-    createdById: creator.userId,
+    createdById: userId,
     isDefaultPassword,
     ...(payload.phone !== undefined ? { phone: payload.phone } : {}),
     ...(defaultPasswordExpiry !== null ? { defaultPasswordExpiry } : {}),
@@ -243,9 +243,13 @@ const updateUser = async (userId: string, payload: Partial<TUser>) => {
       verificationId: otpData.verificationId,
       requiresEmailVerification: true,
     };
+  } else {
+    return {
+      user: updatedUser,
+      verificationId: null,
+      requiresEmailVerification: false,
+    };
   }
-
-  return updatedUser;
 };
 
 export const userService = {
