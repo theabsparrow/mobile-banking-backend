@@ -43,30 +43,35 @@ const getUserById = catchAsync(async (req: Request, res: Response, next: NextFun
   });
 });
 
+const getMe = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = req.user as { userId: string };
+  const result = await userService.getUserById(userId);
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Profile retrieved successfully.',
+    data: result,
+  });
+});
 
-const updateUser = catchAsync(
-  async (req: Request, res: Response, next: NextFunction) => {
-    const { userId } = req.user as TJwtPayload;
-    const payload = req.body as Partial<TUser>;
-    const result = await userService.updateUser(
-      userId,
-      payload
-    );
-    sendResponse(res, {
-      statusCode: StatusCodes.OK,
-      success: true,
-      message: result?.requiresEmailVerification
-        ? 'User updated successfully. Please verify your new email address.'
-        : 'User updated successfully.',
-      data: result,
-    });
-  }
-);
-
+const updateUser = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = req.user as TJwtPayload;
+  const payload = req.body as Partial<TUser>;
+  const result = await userService.updateUser(userId, payload);
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: result?.requiresEmailVerification
+      ? 'User updated successfully. Please verify your new email address.'
+      : 'User updated successfully.',
+    data: result,
+  });
+});
 
 export const userController = {
   createUser,
   getAllUser,
   getUserById,
-  updateUser
+  getMe,
+  updateUser,
 };

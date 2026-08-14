@@ -38,6 +38,21 @@ router.get(
   userController.getUserById
 );
 
+router.get(
+  '/get-me',
+  auth(),
+  rateLimiter({
+    keyPrefix: 'rl:users:get-me:',
+    windowMs: 60 * 1000,
+    max: 100,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return user.userId;
+    },
+  }),
+  userController.getMe
+);
+
 router.post(
   '/',
   auth(Role.SUPER_ADMIN, Role.ADMIN, Role.AGENT),
