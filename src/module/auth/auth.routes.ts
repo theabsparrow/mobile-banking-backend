@@ -1,5 +1,6 @@
 import { router } from '../../config/express.js';
 import { auth } from '../../middlewire/auth.js';
+import { defaultPasswordCheckMiddlewire } from '../../middlewire/defaultPasswordCheckMiddlewire.js';
 import { deviceSwitchMiddleware } from '../../middlewire/deviceSwitchMiddlewire.js';
 import {
   otpRequestMiddlewire,
@@ -53,7 +54,7 @@ router.post(
       return body.verificationId;
     },
   }),
-  verifyOtpMiddlewire("WHILE_REGISTRATION", "WHILE_LOGIN", "FORGET_PASS"),
+  verifyOtpMiddlewire('WHILE_REGISTRATION', 'WHILE_LOGIN', 'FORGET_PASS'),
   validateRequest(AuthValidation.verifyOtpValidationSchema),
   AuthController.verifyOtp
 );
@@ -89,6 +90,7 @@ router.post(
     },
   }),
   validateRequest(AuthValidation.loginValidationSchema),
+  defaultPasswordCheckMiddlewire,
   AuthController.login
 );
 
@@ -160,7 +162,7 @@ router.post(
 
 router.post(
   '/reset-password',
-   rateLimiter({
+  rateLimiter({
     keyPrefix: 'rl:reset-password:',
     windowMs: 15 * 60 * 1000,
     max: 5,
@@ -176,6 +178,5 @@ router.post(
   validateRequest(AuthValidation.resetPasswordValidationSchema),
   AuthController.resetPassword
 );
-
 
 export const authRouts = router;

@@ -26,38 +26,49 @@ enum Status {
 }
 
 model User {
-  id         String    @id @default(uuid())
-  email      String    @unique
-  phone      String?   @unique
-  password   String
-  pin        String?
-  role       Role      @default(CUSTOMER)
-  isVerified Boolean   @default(false)
-  isPinSet   Boolean   @default(false)
-  status     Status    @default(ACTIVE)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  sessions   Session[]
-  maxDeviceAllowed  Int       @default(1)
+  id                    String        @id @default(uuid())
+  email                 String        @unique
+  phone                 String?       @unique
+  password              String
+  name                  String?
+  address               String?
+  image                 String?
+  pin                   String?
+  role                  Role          @default(CUSTOMER)
+  isVerified            Boolean       @default(false)
+  isPinSet              Boolean       @default(false)
+  status                Status        @default(ACTIVE)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  createdById           String?
+  isDefaultPassword     Boolean       @default(false)
+  defaultPasswordExpiry DateTime?
+  createdBy             User?         @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers          User[]        @relation("UserCreatedBy")
+  sessions              Session[]
+  contacts              UserContact[] @relation("ContactOwner")
+  savedBy               UserContact[] @relation("SavedUser")
+
+  maxDeviceAllowed Int @default(1)
 
   @@map("users")
 }
 
 model Session {
-  id String @id @default(uuid())
+  id               String        @id @default(uuid())
   userId           String
-  refreshTokenHash String @unique
-  status SessionStatus @default(ACTIVE)
-  deviceName      String?
-  browser         String?
-  operatingSystem String?
-  ipAddress String?
-  userAgent String?
-  lastActivity DateTime @default(now())
-  expiresAt DateTime
-  revokedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  refreshTokenHash String        @unique
+  status           SessionStatus @default(ACTIVE)
+  deviceName       String?
+  browser          String?
+  operatingSystem  String?
+  ipAddress        String?
+  userAgent        String?
+  lastActivity     DateTime      @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -69,4 +80,22 @@ model Session {
 enum SessionStatus {
   ACTIVE
   REVOKED
+}
+
+model UserContact {
+  id String @id @default(uuid())
+
+  ownerId     String
+  savedUserId String
+  customName  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner     User @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  savedUser User @relation("SavedUser", fields: [savedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, savedUserId])
+  @@index([ownerId])
+  @@index([savedUserId])
 }
