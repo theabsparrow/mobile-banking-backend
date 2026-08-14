@@ -6,6 +6,7 @@ import { sendResponse } from '../../utills/sendResponse.js';
 import { StatusCodes } from 'http-status-codes';
 import { userService } from './user.service.js';
 import type { TJwtPayload } from '../auth/auth.utills.js';
+import AppError from '../../error/AppError.js';
 
 const createUser = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
   const data = req.body as TCreateUser;
@@ -68,10 +69,34 @@ const updateUser = catchAsync(async (req: Request, res: Response, next: NextFunc
   });
 });
 
+const searchUsers = catchAsync(async (req: Request, res: Response) => {
+  const { name, email, phone } = req.query;
+    if (
+      typeof name !== 'string' &&
+      typeof email !== 'string' &&
+      typeof phone !== 'string'
+    ) {
+      throw new AppError(
+        StatusCodes.BAD_REQUEST,
+        'At least one search query is required.'
+      );
+    }
+
+  // const result = await UserService.searchUsers(search.trim(), currentUser.userId);
+
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'Users retrieved successfully.',
+    // data: result,
+  });
+});
+
 export const userController = {
   createUser,
   getAllUser,
   getUserById,
   getMe,
   updateUser,
+  searchUsers
 };

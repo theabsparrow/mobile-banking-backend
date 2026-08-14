@@ -23,3 +23,12 @@ export type TUser = {
   image: string
 };
 
+export type TSearchUserQuery = {
+  name?: string;
+  email?: string;
+  phone?: string;
+  page?: string;
+  limit?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+};

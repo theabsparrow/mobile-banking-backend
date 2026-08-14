@@ -2,11 +2,12 @@ import { StatusCodes } from 'http-status-codes';
 import { prisma } from '../../config/prismaClient.js';
 import AppError from '../../error/AppError.js';
 import { invalidateAuthUserCache } from '../auth/auth.utills.js';
-import type { TCreateUser, TQuery, TUser } from './user.interface.js';
+import type { TCreateUser, TQuery, TSearchUserQuery, TUser } from './user.interface.js';
 import config from '../../config/index.js';
 import { hashData } from '../../utills/hashData.js';
 import { QueryBuilder } from '../../builder/QueryBuilder.js';
 import { sendOtpFlow } from '../../utills/sendOtpFlow.js';
+import { Prisma, Role } from '@prisma/client';
 
 // cretae a users by agent or admin
 const createUser = async (payload: TCreateUser, userId: string) => {
@@ -252,9 +253,91 @@ const updateUser = async (userId: string, payload: Partial<TUser>) => {
   }
 };
 
+const searchUsers = async (query: TSearchUserQuery) => {
+  const { name, email, phone } = query;
+
+  // At least one search field is required
+  if (!name && !email && !phone) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      'At least one search query is required.'
+    );
+  }
+
+  const orConditions: Prisma.UserWhereInput[] = [];
+
+  if (name) {
+    orConditions.push({
+      name: {
+        contains: name,
+        mode: 'insensitive',
+      },
+    });
+  }
+
+  if (email) {
+    orConditions.push({
+      email: {
+        contains: email,
+        mode: 'insensitive',
+      },
+    });
+  }
+
+  if (phone) {
+    orConditions.push({
+      phone: {
+        contains: phone,
+      },
+    });
+  }
+
+  const where: Prisma.UserWhereInput = {
+    role: {
+      in: [Role.CUSTOMER, Role.AGENT],
+    },
+    OR: orConditions,
+  };
+
+  const page = Math.max(Number(query.page) || 1, 1);
+  const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 50);
+  const skip = (page - 1) * limit;
+  const [users, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: {
+        name: 'asc',
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        image: true,
+        role: true,
+      },
+    }),
+    prisma.user.count({
+      where,
+    }),
+  ]);
+  return {
+    data: users,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPage: Math.ceil(total / limit),
+    },
+  };
+};
+
 export const userService = {
   createUser,
   getAllUsers,
   getUserById,
   updateUser,
+  searchUsers,
 };
