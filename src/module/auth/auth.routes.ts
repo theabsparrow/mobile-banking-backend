@@ -2,6 +2,7 @@ import { router } from '../../config/express.js';
 import { auth } from '../../middlewire/auth.js';
 import { defaultPasswordCheckMiddlewire } from '../../middlewire/defaultPasswordCheckMiddlewire.js';
 import { deviceSwitchMiddleware } from '../../middlewire/deviceSwitchMiddlewire.js';
+import { logoutAuth } from '../../middlewire/logoutMiddlewire.js';
 import {
   otpRequestMiddlewire,
   type TResendOtpRequestBody,
@@ -54,7 +55,7 @@ router.post(
       return body.verificationId;
     },
   }),
-  verifyOtpMiddlewire('WHILE_REGISTRATION', 'WHILE_LOGIN', 'FORGET_PASS'),
+  verifyOtpMiddlewire('WHILE_REGISTRATION', 'WHILE_LOGIN', 'FORGET_PASS', 'WHILE_EMAIL_CHANGE'),
   validateRequest(AuthValidation.verifyOtpValidationSchema),
   AuthController.verifyOtp
 );
@@ -114,7 +115,7 @@ router.post(
 
 router.post(
   '/logout',
-  auth(),
+  logoutAuth(),
   rateLimiter({
     keyPrefix: 'rl:logout:',
     windowMs: 5 * 60 * 1000,
@@ -170,13 +171,28 @@ router.post(
       const body = req.body as {
         passwordResetId?: string;
       };
-
       return `${req.ip}:${body.passwordResetId || 'unknown'}`;
     },
   }),
   passwordResetMiddleware,
   validateRequest(AuthValidation.resetPasswordValidationSchema),
   AuthController.resetPassword
+);
+
+// change password
+router.post(
+  '/change-password',
+  auth(),
+  rateLimiter({
+    keyPrefix: 'rl:change-password:',
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return `${user.userId}:${user.sessionId}`;
+    },
+  }),
+  AuthController.changePassword
 );
 
 export const authRouts = router;

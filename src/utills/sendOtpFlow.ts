@@ -3,7 +3,7 @@ import { redisClient } from '../redis/redis.client.js';
 import { sendEmail } from './emailSender.js';
 import { hashData } from './hashData.js';
 
-export type TOtpPurpose = 'WHILE_REGISTRATION' | 'WHILE_LOGIN'  | 'FORGET_PASS';
+export type TOtpPurpose = 'WHILE_REGISTRATION' | 'WHILE_LOGIN'  | 'FORGET_PASS' | 'WHILE_EMAIL_CHANGE';
 export type TRedisData = {
   userId: string;
   otpHash: string;

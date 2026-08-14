@@ -4,6 +4,7 @@ import type { TResendOtpRequestBody } from '../../middlewire/otpRequestMiddlewir
 import { catchAsync } from '../../utills/catchAsync.js';
 import { sendResponse } from '../../utills/sendResponse.js';
 import type {
+  TChangePassword,
   TForgetPassword,
   TLoginData,
   TLogoutAll,
@@ -164,6 +165,17 @@ const resetPassword = catchAsync(async (req: Request, res: Response, next: NextF
   });
 });
 
+const changePassword = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  const { userId } = req.user as TUserDataBody;
+  const data = req.body as TChangePassword;
+  await AuthService.changePassword(data, userId);
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: 'password changed successfully',
+  });
+});
+
 export const AuthController = {
   register,
   resendOtp,
@@ -175,4 +187,5 @@ export const AuthController = {
   accessToken,
   forgetPassword,
   resetPassword,
+  changePassword
 };

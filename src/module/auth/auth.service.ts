@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/require-await */
 import { prisma } from '../../config/prismaClient.js';
 import type {
+  TChangePassword,
   TForgetPassword,
   TLoginData,
   TLogoutAll,
@@ -22,6 +23,7 @@ import {
   createToken,
   deviceSwitchSession,
   deviceSwitchSessionClear,
+  invalidateAuthUserCache,
   resetPasswordSessionClear,
   type TJwtPayload,
 } from './auth.utills.js';
@@ -37,8 +39,8 @@ type TVerifyOtpData = {
 // register a new user
 const registerUser = async (payload: TUser) => {
   const { email, phone, password, confirmPassword } = payload;
-  if(password !== confirmPassword){
-     throw new AppError(StatusCodes.BAD_REQUEST,'password and the confirm password is not same.');
+  if (password !== confirmPassword) {
+    throw new AppError(StatusCodes.BAD_REQUEST, 'password and the confirm password is not same.');
   }
 
   // Check if email already exists
@@ -46,7 +48,7 @@ const registerUser = async (payload: TUser) => {
     where: { email },
   });
   if (existingEmailUser) {
-    throw new AppError(StatusCodes.CONFLICT,'Email is already registered.');
+    throw new AppError(StatusCodes.CONFLICT, 'Email is already registered.');
   }
 
   // Check if phone already exists
@@ -55,7 +57,7 @@ const registerUser = async (payload: TUser) => {
       where: { phone },
     });
     if (existingPhoneUser) {
-      throw new AppError(StatusCodes.CONFLICT,'Phone number is already registered.');
+      throw new AppError(StatusCodes.CONFLICT, 'Phone number is already registered.');
     }
   }
 
@@ -64,7 +66,7 @@ const registerUser = async (payload: TUser) => {
   const data = {
     email,
     password: hashedPassword,
-    name: email.split('@')[0] ?? ''
+    name: email.split('@')[0] ?? '',
   };
 
   // Create pending user in PostgreSQL
@@ -171,9 +173,10 @@ const verifyOtp = async ({ verificationId, userId, otp, otpHash, purpose }: TVer
 
     // clear redis otp session
     await clearOtpSession(verificationId);
-
+    await invalidateAuthUserCache(userId)
     // pin setup id settting
     const pinSetupId = await setPinSession({ userId: updatedUser?.id });
+
     return pinSetupId;
   }
 
@@ -231,6 +234,7 @@ const setPin = async (payload: TPinData, userId: string) => {
 
   // clear the pin session and return the data
   await clearPinSession(pinSetupId);
+   await invalidateAuthUserCache(userId)
   return updatedUser;
 };
 
@@ -481,6 +485,8 @@ const resetPassword = async (payload: TResetPassword, userId: string) => {
       },
       data: {
         password: hashedPassword,
+        isDefaultPassword: false,
+        defaultPasswordExpiry: null,
       },
     });
 
@@ -498,6 +504,58 @@ const resetPassword = async (payload: TResetPassword, userId: string) => {
 
   // 7. Clear password-reset Redis session
   await resetPasswordSessionClear(passwordResetId);
+   await invalidateAuthUserCache(userId)
+};
+
+// change password
+const changePassword = async (payload: TChangePassword, userId: string) => {
+  const { pin, oldPassword, newPassword, confirmNewPassword } = payload;
+  if (newPassword !== confirmNewPassword) {
+    throw new AppError(StatusCodes.BAD_REQUEST, 'New password and confirm password do not match.');
+  }
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+  });
+
+  if (!user) {
+    throw new AppError(StatusCodes.NOT_FOUND, 'User not found.');
+  }
+  const compare = compareData(pin, user?.pin as string);
+  if (!compare) {
+    throw new AppError(StatusCodes.UNAUTHORIZED, 'Invalid PIN.');
+  }
+  const isOldPasswordMatched = await compareData(oldPassword, user.password);
+  if (!isOldPasswordMatched) {
+    throw new AppError(StatusCodes.UNAUTHORIZED, 'Old password is incorrect.');
+  }
+
+  const hashedPassword = await hashData(newPassword);
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        password: hashedPassword,
+        isDefaultPassword: false,
+        defaultPasswordExpiry: null,
+      },
+    });
+
+    await tx.session.updateMany({
+      where: {
+        userId: user.id,
+        status: 'ACTIVE',
+      },
+      data: {
+        status: 'REVOKED',
+        revokedAt: new Date(),
+      },
+    });
+  });
+   await invalidateAuthUserCache(userId)
 };
 
 export const AuthService = {
@@ -511,4 +569,5 @@ export const AuthService = {
   accessToken,
   forgetPassword,
   resetPassword,
+  changePassword,
 };

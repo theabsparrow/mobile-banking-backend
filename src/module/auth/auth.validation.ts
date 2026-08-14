@@ -12,7 +12,7 @@ const registerValidationSchema = z.object({
     .regex(/[A-Z]/, 'Password must contain at least 1 uppercase letter')
     .regex(/[0-9]/, 'Password must contain at least 1 number')
     .regex(/[^A-Za-z0-9]/, 'Password must contain at least 1 special character'),
-    confirmPassword: z
+  confirmPassword: z
     .string()
     .min(8, 'Password must be at least 8 characters long')
     .max(16, 'Password must not exceed 16 characters'),
@@ -76,6 +76,24 @@ const resetPasswordValidationSchema = z.object({
     .max(16, 'Password must not exceed 16 characters'),
 });
 
+// change password
+const changePasswordValidationSchema = z.object({
+  pin: z.string().min(1, 'pin is required'),
+  oldPassword: z.string().min(1, 'Old password is required'),
+  newPassword: z
+    .string()
+    .min(8, 'Password must be at least 8 characters long')
+    .max(16, 'Password must not exceed 16 characters')
+    .regex(/[a-z]/, 'Password must contain at least 1 lowercase letter')
+    .regex(/[A-Z]/, 'Password must contain at least 1 uppercase letter')
+    .regex(/[0-9]/, 'Password must contain at least 1 number')
+    .regex(/[^A-Za-z0-9]/, 'Password must contain at least 1 special character'),
+  confirmNewPassword: z
+    .string()
+    .min(8, 'Password must be at least 8 characters long')
+    .max(16, 'Password must not exceed 16 characters'),
+});
+
 export const AuthValidation = {
   registerValidationSchema,
   resendOtpValidationSchema,
@@ -84,5 +102,6 @@ export const AuthValidation = {
   setPinValidationSchema,
   logoutAlValidationSchema,
   forgetPasswordValidationSchema,
-  resetPasswordValidationSchema
+  resetPasswordValidationSchema,
+  changePasswordValidationSchema,
 };

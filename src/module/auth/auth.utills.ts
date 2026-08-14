@@ -45,3 +45,7 @@ export const verifyToken = (token: string, secret: string) => {
 export const resetPasswordSessionClear = async (passwordResetId: string) => {
   await redisClient.del(`password:reset:${passwordResetId}`);
 };
+
+export const invalidateAuthUserCache = async (userId: string) => {
+  await redisClient.del(`auth:user:${userId}`);
+};

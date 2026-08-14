@@ -4,7 +4,7 @@ export type TUser = {
   email: string;
   phone?: string;
   password: string;
-  confirmPassword: string
+  confirmPassword: string;
   role?: Role;
 };
 
@@ -39,4 +39,11 @@ export type TResetPassword = {
   newPassword: string;
   confirmNewPassword: string;
   passwordResetId: string;
+};
+
+export type TChangePassword = {
+  pin: string;
+  oldPassword: string;
+  newPassword: string;
+  confirmNewPassword: string;
 };

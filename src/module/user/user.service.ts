@@ -1,11 +1,14 @@
 import { StatusCodes } from 'http-status-codes';
 import { prisma } from '../../config/prismaClient.js';
 import AppError from '../../error/AppError.js';
-import type { TJwtPayload } from '../auth/auth.utills.js';
-import type { TCreateUser } from './user.interface.js';
+import { invalidateAuthUserCache, type TJwtPayload } from '../auth/auth.utills.js';
+import type { TCreateUser, TQuery, TUser } from './user.interface.js';
 import config from '../../config/index.js';
 import { hashData } from '../../utills/hashData.js';
+import { QueryBuilder } from '../../builder/QueryBuilder.js';
+import { sendOtpFlow } from '../../utills/sendOtpFlow.js';
 
+// cretae a users by agent or admin
 const createUser = async (payload: TCreateUser, creator: TJwtPayload) => {
   const existingEmail = await prisma.user.findUnique({
     where: {
@@ -60,6 +63,194 @@ const createUser = async (payload: TCreateUser, creator: TJwtPayload) => {
   return user;
 };
 
+// get all users
+const getAllUsers = async (query: TQuery) => {
+  const queryBuilder = new QueryBuilder(query)
+    .search(['name', 'email', 'phone'])
+    .filter(['role', 'status'])
+    .sort()
+    .paginate();
+
+  const where = queryBuilder.getWhere();
+  const orderBy = queryBuilder.getOrderBy();
+  const skip = queryBuilder.getSkip();
+  const take = queryBuilder.getTake();
+
+  const [users, total] = await prisma.$transaction([
+    prisma.user.findMany({
+      where,
+      orderBy,
+      skip,
+      take,
+
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        name: true,
+        address: true,
+        image: true,
+        role: true,
+        isVerified: true,
+        isPinSet: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    }),
+
+    prisma.user.count({
+      where,
+    }),
+  ]);
+
+  return {
+    meta: queryBuilder.getPaginationMeta(total),
+    data: users,
+  };
+};
+
+// get user by id
+const getUserById = async (id: string) => {
+  const user = await prisma.user.findUnique({
+    where: {
+      id,
+    },
+    select: {
+      id: true,
+      email: true,
+      phone: true,
+      name: true,
+      address: true,
+      image: true,
+      role: true,
+      isVerified: true,
+      isPinSet: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      maxDeviceAllowed: true,
+
+      createdBy: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+
+      sessions: {
+        where: {
+          status: 'ACTIVE',
+        },
+        select: {
+          id: true,
+          deviceName: true,
+          browser: true,
+          operatingSystem: true,
+          ipAddress: true,
+          lastActivity: true,
+          expiresAt: true,
+          createdAt: true,
+        },
+        orderBy: {
+          lastActivity: 'desc',
+        },
+      },
+    },
+  });
+  return user;
+};
+
+// update a user
+const updateUser = async (userId: string, payload: Partial<TUser>) => {
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      id: true,
+      email: true,
+      phone: true,
+      name: true,
+    },
+  });
+
+  if (!user) {
+    throw new AppError(StatusCodes.NOT_FOUND, 'User not found.');
+  }
+
+  // Check email uniqueness
+  if (payload.email && payload.email === user.email) {
+    throw new AppError(StatusCodes.CONFLICT, 'Email is already registered.');
+  }
+
+  // Check phone uniqueness
+  if (payload.phone && payload.phone === user.phone) {
+    throw new AppError(StatusCodes.CONFLICT, 'Phone number is already registered.');
+  }
+
+  const emailChanged = payload.email !== undefined && payload.email !== user.email;
+
+  const updatedUser = await prisma.user.update({
+    where: {
+      id: userId,
+    },
+    data: {
+      ...payload,
+
+      ...(emailChanged
+        ? {
+            isVerified: false,
+          }
+        : {}),
+    },
+    select: {
+      id: true,
+      email: true,
+      phone: true,
+      name: true,
+      address: true,
+      image: true,
+      role: true,
+      isVerified: true,
+      isPinSet: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  await invalidateAuthUserCache(userId);
+  if (emailChanged) {
+    const otpData = await sendOtpFlow({
+      email: updatedUser.email,
+      userId: updatedUser.id,
+      purpose: 'WHILE_EMAIL_CHANGE',
+    });
+
+    return {
+      user: updatedUser,
+      verificationId: otpData.verificationId,
+      requiresEmailVerification: true,
+    };
+  }
+
+  return updatedUser;
+};
+
 export const userService = {
   createUser,
+  getAllUsers,
+  getUserById,
+  updateUser,
 };
