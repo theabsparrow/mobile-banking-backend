@@ -25,7 +25,7 @@ router.get(
 
 router.get(
   '/:id',
-  auth(Role.SUPER_ADMIN, Role.ADMIN),
+  auth(),
   rateLimiter({
     keyPrefix: 'rl:users:get:',
     windowMs: 60 * 1000,
@@ -86,4 +86,35 @@ router.patch(
   userController.updateUser
 );
 
+router.get(
+  '/search-users',
+  auth(),
+  rateLimiter({
+    keyPrefix: 'rl:users:search:',
+    windowMs: 5 * 60 * 1000,
+    max: 10,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return `${user.userId}:${user.sessionId}`;
+    },
+  }),
+  userController.searchUsers
+);
+
+
+router.get(
+  '/check-users',
+  auth(),
+  rateLimiter({
+    keyPrefix: 'rl:users:search:',
+    windowMs: 5 * 60 * 1000,
+    max: 10,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return `${user.userId}:${user.sessionId}`;
+    },
+  }),
+  validateRequest(userValidation.checkUserValidationSchema),
+  userController.checkUsers
+);
 export const userRoutes = router;

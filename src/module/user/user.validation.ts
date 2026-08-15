@@ -45,7 +45,20 @@ const updateUserValidationSchema = z.object({
   address: z.string().max(255, 'Address must not exceed 255 characters').optional(),
 });
 
+
+const checkUserValidationSchema = z.object({
+  email: z.string().email('Invalid email format').optional(),
+  phone: z
+    .string()
+    .min(10, 'Phone number must be at least 10 characters')
+    .max(15, 'Phone number must not exceed 15 characters')
+    .optional(),
+
+});
+
+
 export const userValidation = {
   createUserValidationSchema,
   updateUserValidationSchema,
+  checkUserValidationSchema
 };
