@@ -1,0 +1,52 @@
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  AGENT
+  CUSTOMER
+}
+
+enum Status {
+  ACTIVE
+  BLOCKED
+  SUSPENDED
+}
+
+
+model User {
+  id                    String        @id @default(uuid())
+  email                 String        @unique
+  phone                 String?       @unique
+  password              String
+  name                  String?
+  address               String?
+  image                 String?
+  pin                   String?
+  role                  Role          @default(CUSTOMER)
+  isVerified            Boolean       @default(false)
+  isPinSet              Boolean       @default(false)
+  status                Status        @default(ACTIVE)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  createdById           String?
+  isDefaultPassword     Boolean       @default(false)
+  defaultPasswordExpiry DateTime?
+  
+  createdBy             User?         @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers          User[]        @relation("UserCreatedBy")
+  sessions              Session[]
+  contacts              UserContact[] @relation("ContactOwner")
+  savedBy               UserContact[] @relation("SavedUser")
+
+  maxDeviceAllowed      Int           @default(1)
+  balance               Float         @default(0.0)
+
+  requestedMoney        Request[]     @relation("FundRequestRequester")
+  receivedMoney         Request[]     @relation("FundRequestReceiver")
+  processedRequests     Request[]     @relation("FundRequestProcessedBy")
+
+  wallet                Wallet?
+  initiatedTransactions Transaction[]
+
+  @@map("users")
+}
+

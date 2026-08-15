@@ -1,0 +1,25 @@
+enum LedgerEntryType {
+    DEBIT
+    CREDIT
+}
+
+model WalletLedger {
+    id            String          @id @default(uuid())
+    walletId      String
+    transactionId String
+    type          LedgerEntryType
+    amount        Decimal         @db.Decimal(18, 2)
+    balanceBefore Decimal         @db.Decimal(18, 2)
+    balanceAfter  Decimal         @db.Decimal(18, 2)
+    createdAt     DateTime        @default(now())
+
+    wallet      Wallet      @relation(fields: [walletId], references: [id])
+    transaction Transaction @relation(fields: [transactionId], references: [id])
+
+    @@index([walletId])
+    @@index([transactionId])
+    @@index([createdAt])
+    @@map("wallet_ledger")
+}
+
+

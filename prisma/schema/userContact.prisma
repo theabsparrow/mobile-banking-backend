@@ -1,0 +1,15 @@
+model UserContact {
+  id          String   @id @default(uuid())
+  ownerId     String
+  savedUserId String
+  customName  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner     User @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  savedUser User @relation("SavedUser", fields: [savedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, savedUserId])
+  @@index([ownerId])
+  @@index([savedUserId])
+}

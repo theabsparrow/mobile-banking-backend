@@ -1,0 +1,55 @@
+enum TransactionType {
+    ADMIN_TO_AGENT
+    AGENT_TO_ADMIN
+    AGENT_TO_AGENT
+    USER_TO_USER
+    USER_TO_AGENT
+    AGENT_TO_USER
+    CASH_IN
+    CASH_OUT
+    REFUND
+}
+
+enum TransactionStatus {
+    PENDING
+    PROCESSING
+    COMPLETED
+    FAILED
+    REVERSED
+    CANCELLED
+}
+
+model Transaction {
+    id          String            @id @default(uuid())
+    reference   String            @unique
+    type        TransactionType
+    status      TransactionStatus
+    amount      Decimal           @db.Decimal(18, 2)
+    fee         Decimal           @default(0) @db.Decimal(18, 2)
+    totalAmount Decimal           @db.Decimal(18, 2)
+
+    senderWalletId   String?
+    receiverWalletId String?
+    initiatedById    String
+
+    description String?
+    metadata    Json?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    senderWallet   Wallet?        @relation("TransactionSender", fields: [senderWalletId], references: [id])
+    receiverWallet Wallet?        @relation("TransactionReceiver", fields: [receiverWalletId], references: [id])
+    initiatedBy    User           @relation(fields: [initiatedById], references: [id])
+    ledgerEntries  WalletLedger[]
+
+    @@index([senderWalletId])
+    @@index([receiverWalletId])
+    @@index([initiatedById])
+    @@index([type])
+    @@index([status])
+    @@index([createdAt])
+    @@map("transactions")
+}
+
+

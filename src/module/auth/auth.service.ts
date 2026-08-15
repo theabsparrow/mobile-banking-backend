@@ -522,7 +522,7 @@ const changePassword = async (payload: TChangePassword, userId: string) => {
   if (!user) {
     throw new AppError(StatusCodes.NOT_FOUND, 'User not found.');
   }
-  const compare = compareData(pin, user?.pin as string);
+  const compare = await compareData(pin, user?.pin as string);
   if (!compare) {
     throw new AppError(StatusCodes.UNAUTHORIZED, 'Invalid PIN.');
   }
