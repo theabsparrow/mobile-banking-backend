@@ -1,13 +1,8 @@
 enum TransactionType {
-    ADMIN_TO_AGENT
-    AGENT_TO_ADMIN
-    AGENT_TO_AGENT
-    USER_TO_USER
-    USER_TO_AGENT
-    AGENT_TO_USER
-    CASH_IN
-    CASH_OUT
-    REFUND
+   SEND_MONEY
+  CASH_IN
+  CASH_OUT
+  REFUND
 }
 
 enum TransactionStatus {

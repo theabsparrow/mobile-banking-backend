@@ -16,10 +16,10 @@ async function main() {
     await prisma.$connect();
     await connectRedis();
 
-    server = http.createServer(app);
-    initializeSocket(server);
+    const httpServer = http.createServer(app);
+    initializeSocket(httpServer);
 
-    server = app.listen(config.port, () => {
+    server = httpServer.listen(config.port, () => {
       console.log(`server is running on port ${config.port as string} 😎`);
     });
   } catch (error) {
