@@ -3,16 +3,9 @@ import { StatusCodes } from 'http-status-codes';
 import { prisma } from '../../config/prismaClient.js';
 import AppError from '../../error/AppError.js';
 import { getIO } from '../../socket/server.js';
-import { compareData } from '../../utills/hashData.js';
 import { invalidateAuthUserCache } from '../auth/auth.utills.js';
-import type {
-  TCreateBusinessRequestInput,
-  TCreatePersonalRequestInput,
-  TCancelRequestInput,
-  TDeleteRequestInput,
-  TRejectRequestInput,
-  TProcessRequestInput,
-} from './request.interface.js';
+import type { TProcessRequestInput, TCreateRequest, TRequest } from './request.interface.js';
+import { verifyUserPin } from '../../utills/verifyPin.js';
 
 interface IPrismaTx {
   wallet: typeof prisma.wallet;
@@ -34,129 +27,63 @@ const getOrCreateWallet = async (userId: string, tx: IPrismaTx = prisma) => {
   return wallet;
 };
 
-// Helper to verify PIN
-const verifyUserPin = async (userId: string, pin: string) => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-  });
-  if (!user || !user.pin) {
-    throw new AppError(StatusCodes.FORBIDDEN, 'User PIN is not set.');
-  }
-  const isPinMatched = await compareData(pin, user.pin);
-  if (!isPinMatched) {
-    throw new AppError(StatusCodes.UNAUTHORIZED, 'Invalid PIN.');
-  }
-  return user;
+const requestUserSelect = {
+  id: true,
+  email: true,
+  phone: true,
+  role: true,
+  profile: {
+    select: {
+      name: true,
+    },
+  },
 };
 
-const createBusinessRequest = async (id: string, payload: TCreateBusinessRequestInput) => {
+// cretae business request
+const createBusinessRequest = async (id: string, payload: TCreateRequest) => {
   const { amount, reason, pin } = payload;
-
-  // 1. Verify PIN
-  await verifyUserPin(id, pin);
-
-  // 2. Verify Requester is Agent
-  const requester = await prisma.user.findUnique({
-    where: {id},
-  });
-
-  if (!requester || requester.role !== Role.AGENT) {
-    throw new AppError(StatusCodes.FORBIDDEN, 'Only agents can request business funds.');
+  const isPinVerified = await verifyUserPin(id, pin);
+  if (!isPinVerified) {
+    throw new AppError(StatusCodes.FORBIDDEN, 'incorrect pin.');
   }
-
-  // 3. Find Admin
-  const admin = await prisma.user.findFirst({
-    where: {
-      role: {
-        in: [Role.ADMIN, Role.SUPER_ADMIN],
-      },
-      status: 'ACTIVE',
-    },
-  });
-
-  if (!admin) {
-    throw new AppError(StatusCodes.NOT_FOUND, 'No admin found to receive this request.');
-  }
-
   const request = await prisma.request.create({
     data: {
       requesterId: id,
-      receiverId: admin.id,
       amount,
       reason,
-      status: 'PENDING',
-    },
-    include: {
-      requester: { select: { id: true, name: true, email: true, phone: true } },
-      receiver: { select: { id: true, name: true, email: true, phone: true } },
     },
   });
-
-  // Emit event to all admins
-  const io = getIO();
-  io.emit('new-money-request', request);
-
   return request;
 };
 
-const createPersonalRequest = async (id: string, payload: TCreatePersonalRequestInput) => {
-  const { receiverId, amount, reason, pin } = payload;
 
-  // 1. Verify PIN
-  await verifyUserPin(id, pin);
-
+// create personal request
+const createPersonalRequest = async (id: string, payload: TCreateRequest) => {
+  const { amount, reason, pin, receiverId } = payload;
   if (id === receiverId) {
-    throw new AppError(StatusCodes.BAD_REQUEST, 'You cannot request money from yourself.');
+    throw new AppError(StatusCodes.CONFLICT, 'you can`t req to yourself');
   }
-
-  // 2. Validate Receiver exists and is active customer/agent
-  const receiver = await prisma.user.findUnique({
-    where: { id },
-  });
-
-  if (!receiver || receiver.status !== 'ACTIVE') {
-    throw new AppError(StatusCodes.NOT_FOUND, 'Receiver user not found or is inactive.');
+  const isPinVerified = await verifyUserPin(id, pin);
+  if (!isPinVerified) {
+    throw new AppError(StatusCodes.FORBIDDEN, 'incorrect pin.');
   }
-
-  // 3. Validate Receiver is in Requester's contact list
-  const inContactList = await prisma.userContact.findUnique({
-    where: {
-      ownerId_savedUserId: {
-        ownerId: id,
-        savedUserId: receiverId,
-      },
-    },
-  });
-
-  if (!inContactList) {
-    throw new AppError(StatusCodes.FORBIDDEN, 'You can only request money from users in your contact list.');
-  }
-
   const request = await prisma.request.create({
     data: {
       requesterId: id,
-      receiverId,
+      receiverId: receiverId as string,
       amount,
       reason,
-      status: 'PENDING',
-    },
-    include: {
-      requester: { select: { id: true, name: true, email: true, phone: true } },
-      receiver: { select: { id: true, name: true, email: true, phone: true } },
     },
   });
-
-  // Emit event to receiver in real-time
-  const io = getIO();
-  io.to(receiverId).emit('new-personal-request', request);
-
   return request;
 };
 
+
+// get requests
 const getRequests = async (userId: string, role: Role) => {
-  let request;
+  let requests;
   if (role === Role.ADMIN || role === Role.SUPER_ADMIN) {
-    request = await prisma.request.findMany({
+    requests = await prisma.request.findMany({
       where: {
         OR: [
           { requesterId: userId },
@@ -166,35 +93,65 @@ const getRequests = async (userId: string, role: Role) => {
         ],
       },
       include: {
-        requester: { select: { id: true, name: true, email: true, phone: true } },
-        receiver: { select: { id: true, name: true, email: true, phone: true } },
+        requester: { select: requestUserSelect },
+        receiver: { select: requestUserSelect },
       },
       orderBy: { createdAt: 'desc' },
     });
   } else {
-    request = await prisma.request.findMany({
+    requests = await prisma.request.findMany({
       where: {
-        OR: [
-          { requesterId: userId },
-          { receiverId: userId },
-        ],
+        OR: [{ requesterId: userId }, { receiverId: userId }],
       },
       include: {
-        requester: { select: { id: true, name: true, email: true, phone: true } },
-        receiver: { select: { id: true, name: true, email: true, phone: true } },
+        requester: { select: requestUserSelect },
+        receiver: { select: requestUserSelect },
       },
       orderBy: { createdAt: 'desc' },
     });
   }
-  return request;
+  return requests.map(mapRequest);
 };
 
-const getRequestById = async (userId: string, role: Role, requestId: string) => {
+const getMyRequests = async (userId: string) => {
+  let requests;
+  if (role === Role.ADMIN || role === Role.SUPER_ADMIN) {
+    requests = await prisma.request.findMany({
+      where: {
+        OR: [
+          { requesterId: userId },
+          { receiverId: userId },
+          { status: 'PENDING' },
+          { processedById: userId },
+        ],
+      },
+      include: {
+        requester: { select: requestUserSelect },
+        receiver: { select: requestUserSelect },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  } else {
+    requests = await prisma.request.findMany({
+      where: {
+        OR: [{ requesterId: userId }, { receiverId: userId }],
+      },
+      include: {
+        requester: { select: requestUserSelect },
+        receiver: { select: requestUserSelect },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+  return requests.map(mapRequest);
+};
+
+const getRequestById = async (userId: string, requestId: string) => {
   const request = await prisma.request.findUnique({
     where: { id: requestId },
     include: {
-      requester: { select: { id: true, name: true, email: true, phone: true } },
-      receiver: { select: { id: true, name: true, email: true, phone: true } },
+      requester: { select: requestUserSelect },
+      receiver: { select: requestUserSelect },
     },
   });
 
@@ -226,7 +183,7 @@ const getRequestById = async (userId: string, role: Role, requestId: string) => 
   return request;
 };
 
-const cancelRequest = async (userId: string, requestId: string, payload: TCancelRequestInput) => {
+const cancelRequest = async (userId: string, requestId: string, payload: TRequest) => {
   const { pin } = payload;
 
   // 1. Verify PIN
@@ -256,14 +213,10 @@ const cancelRequest = async (userId: string, requestId: string, payload: TCancel
     },
   });
 
-  // Emit event in real-time
-  const io = getIO();
-  io.to(request.receiverId).emit('money-request-cancelled', { id: requestId });
-
   return updatedRequest;
 };
 
-const deleteRequest = async (userId: string, requestId: string, payload: TDeleteRequestInput) => {
+const deleteRequest = async (userId: string, requestId: string, payload: TRequest) => {
   const { pin } = payload;
 
   // 1. Verify PIN
@@ -289,7 +242,7 @@ const deleteRequest = async (userId: string, requestId: string, payload: TDelete
   return null;
 };
 
-const rejectRequest = async (userId: string, requestId: string, payload: TRejectRequestInput) => {
+const rejectRequest = async (userId: string, requestId: string, payload: TRequest) => {
   const { pin, rejectionReason } = payload;
 
   // 1. Verify PIN
@@ -328,11 +281,6 @@ const rejectRequest = async (userId: string, requestId: string, payload: TReject
       rejectionReason: rejectionReason ?? null,
     },
   });
-
-  // Notify requester in real-time
-  const io = getIO();
-  io.to(request.requesterId).emit('money-request-rejected', updatedRequest);
-
   return updatedRequest;
 };
 
@@ -346,7 +294,14 @@ const approveRequest = async (userId: string, requestId: string, payload: TProce
   const request = await prisma.request.findUnique({
     where: { id: requestId },
     include: {
-      requester: { select: { id: true, role: true, name: true, phone: true } },
+      requester: {
+        select: {
+          id: true,
+          role: true,
+          phone: true,
+          profile: { select: { name: true } },
+        },
+      },
     },
   });
 
@@ -362,26 +317,29 @@ const approveRequest = async (userId: string, requestId: string, payload: TProce
 
   // Enforce receiver or admin permission
   if (request.receiverId !== userId && !isAdmin) {
-    throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to approve this request.');
+    throw new AppError(
+      StatusCodes.FORBIDDEN,
+      'You do not have permission to approve this request.'
+    );
   }
 
   const amount = Number(request.amount);
 
   // 3. Determine transaction type based on roles
-  let transactionType: TransactionType = 'USER_TO_USER';
+  let transactionType: TransactionType = 'SEND_MONEY';
   if (approver.role === Role.ADMIN || approver.role === Role.SUPER_ADMIN) {
-    transactionType = 'ADMIN_TO_AGENT';
+    transactionType = 'CASH_IN';
   } else if (approver.role === Role.AGENT) {
     if (request.requester.role === Role.AGENT) {
-      transactionType = 'AGENT_TO_AGENT';
+      transactionType = 'SEND_MONEY';
     } else {
-      transactionType = 'AGENT_TO_USER';
+      transactionType = 'CASH_IN';
     }
   } else if (approver.role === Role.CUSTOMER) {
     if (request.requester.role === Role.AGENT) {
-      transactionType = 'USER_TO_AGENT';
+      transactionType = 'CASH_OUT';
     } else {
-      transactionType = 'USER_TO_USER';
+      transactionType = 'SEND_MONEY';
     }
   }
 
@@ -486,7 +444,7 @@ const approveRequest = async (userId: string, requestId: string, payload: TProce
   io.to(request.requesterId).emit('money-request-approved', result.request);
   io.to(request.requesterId).emit('balance-updated', { balance: result.receiverBalance });
   io.to(request.requesterId).emit('notification', {
-    message: `Your money request for BDT ${amount} has been approved by ${approver.name || approver.phone}.`,
+    message: `Your money request for BDT ${amount} has been approved by ${approver.profile?.name || approver.phone}.`,
   });
 
   return result;
@@ -496,6 +454,7 @@ export const requestService = {
   createBusinessRequest,
   createPersonalRequest,
   getRequests,
+  getMyRequests,
   getRequestById,
   cancelRequest,
   deleteRequest,

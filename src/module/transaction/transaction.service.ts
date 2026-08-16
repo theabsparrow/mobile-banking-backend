@@ -31,6 +31,7 @@ const getOrCreateWallet = async (userId: string, tx: IPrismaTx = prisma) => {
 const verifyUserPin = async (userId: string, pin: string) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
+    include: { profile: true },
   });
   if (!user || !user.pin) {
     throw new AppError(StatusCodes.FORBIDDEN, 'User PIN is not set.');
@@ -62,6 +63,7 @@ const sendMoney = async (senderId: string, payload: TSendMoneyInput) => {
       role: Role.CUSTOMER,
       status: 'ACTIVE',
     },
+    include: { profile: true },
   });
 
   if (!receiver) {
@@ -107,14 +109,14 @@ const sendMoney = async (senderId: string, payload: TSendMoneyInput) => {
     const transaction = await tx.transaction.create({
       data: {
         reference,
-        type: 'USER_TO_USER',
+        type: 'SEND_MONEY',
         status: 'COMPLETED',
         amount,
         totalAmount: amount,
         senderWalletId: senderWallet.id,
         receiverWalletId: receiverWallet.id,
         initiatedById: senderId,
-        description: `Send money to ${receiver.name || receiver.email}`,
+        description: `Send money to ${receiver.profile?.name || receiver.email}`,
       },
     });
 
@@ -154,7 +156,7 @@ const sendMoney = async (senderId: string, payload: TSendMoneyInput) => {
   const io = getIO();
   io.to(receiver.id).emit('balance-updated', { balance: result.receiverBalance });
   io.to(receiver.id).emit('notification', {
-    message: `You received BDT ${amount} from ${sender.name || sender.phone || sender.email}.`,
+    message: `You received BDT ${amount} from ${sender.profile?.name || sender.phone || sender.email}.`,
   });
 
   return result;
@@ -180,6 +182,7 @@ const cashInToUser = async (agentId: string, payload: TSendMoneyInput) => {
       role: Role.CUSTOMER,
       status: 'ACTIVE',
     },
+    include: { profile: true },
   });
 
   if (!receiver) {
@@ -221,14 +224,14 @@ const cashInToUser = async (agentId: string, payload: TSendMoneyInput) => {
     const transaction = await tx.transaction.create({
       data: {
         reference,
-        type: 'AGENT_TO_USER',
+        type: 'CASH_IN',
         status: 'COMPLETED',
         amount,
         totalAmount: amount,
         senderWalletId: agentWallet.id,
         receiverWalletId: receiverWallet.id,
         initiatedById: agentId,
-        description: `Cash in to ${receiver.name || receiver.email}`,
+        description: `Cash in to ${receiver.profile?.name || receiver.email}`,
       },
     });
 
@@ -268,7 +271,7 @@ const cashInToUser = async (agentId: string, payload: TSendMoneyInput) => {
   const io = getIO();
   io.to(receiver.id).emit('balance-updated', { balance: result.receiverBalance });
   io.to(receiver.id).emit('notification', {
-    message: `Your account has been cashed in BDT ${amount} by agent ${agent.name || agent.phone}.`,
+    message: `Your account has been cashed in BDT ${amount} by agent ${agent.profile?.name || agent.phone}.`,
   });
 
   return result;
@@ -294,6 +297,7 @@ const cashOut = async (userId: string, payload: TCashOutInput) => {
       role: Role.AGENT,
       status: 'ACTIVE',
     },
+    include: { profile: true },
   });
 
   if (!agent) {
@@ -342,7 +346,7 @@ const cashOut = async (userId: string, payload: TCashOutInput) => {
         senderWalletId: userWallet.id,
         receiverWalletId: agentWallet.id,
         initiatedById: userId,
-        description: `Cash out to agent ${agent.name || agent.email}`,
+        description: `Cash out to agent ${agent.profile?.name || agent.email}`,
       },
     });
 
@@ -382,7 +386,7 @@ const cashOut = async (userId: string, payload: TCashOutInput) => {
   const io = getIO();
   io.to(agent.id).emit('balance-updated', { balance: result.agentBalance });
   io.to(agent.id).emit('notification', {
-    message: `Received cash out of BDT ${amount} from customer ${user.name || user.phone}.`,
+    message: `Received cash out of BDT ${amount} from customer ${user.profile?.name || user.phone}.`,
   });
 
   return result;

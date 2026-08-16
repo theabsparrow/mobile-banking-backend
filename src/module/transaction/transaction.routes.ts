@@ -6,8 +6,7 @@ import validateRequest from '../../middlewire/validateRequest.js';
 import type { TJwtPayload } from '../auth/auth.utills.js';
 import { transactionController } from './transaction.controller.js';
 import { transactionValidation } from './transaction.validation.js';
-
-const router = Router();
+import { router } from '../../config/express.js';
 
 router.post(
   '/send-money',

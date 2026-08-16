@@ -97,11 +97,11 @@ const searchUsers = catchAsync(async (req: Request, res: Response) => {
 // check user
 const checkUsers = catchAsync(async (req: Request, res: Response) => {
   const data = req.body as TLoginData;
-  const result = await userService.searchUsers(data);
+  const result = await userService.checkUsers(data);
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
-    message: 'Users retrieved successfully.',
+    message: 'User retrieved successfully.',
     data: result,
   });
 });

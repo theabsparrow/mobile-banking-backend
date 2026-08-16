@@ -22,8 +22,9 @@ const createContact = catchAsync(async (req: Request, res: Response) => {
 
 const getContacts = catchAsync(async (req: Request, res: Response) => {
   const { userId } = req.user as TJwtPayload;
+  const query = req.query;
 
-  const result = await userContactService.getContacts(userId);
+  const result = await userContactService.getContacts(userId, query);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -51,9 +52,7 @@ const updateContact = catchAsync(async (req: Request, res: Response) => {
   const { userId } = req.user as TJwtPayload;
   const id = req.params.id as string;
   const payload = req.body as Partial<TCreateContact>;
-
   const result = await userContactService.updateContact(userId, id, payload);
-
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,

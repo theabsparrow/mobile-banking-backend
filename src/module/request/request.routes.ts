@@ -6,8 +6,7 @@ import validateRequest from '../../middlewire/validateRequest.js';
 import type { TJwtPayload } from '../auth/auth.utills.js';
 import { requestController } from './request.controller.js';
 import { requestValidation } from './request.validation.js';
-
-const router = Router();
+import { router } from '../../config/express.js';
 
 router.post(
   '/business',
@@ -57,6 +56,21 @@ router.get(
 );
 
 router.get(
+  '/my-request',
+  auth(Role.CUSTOMER, Role.AGENT),
+  rateLimiter({
+    keyPrefix: 'rl:req:my:',
+    windowMs: 60 * 1000,
+    max: 60,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return user.userId;
+    },
+  }),
+  requestController.getMyRequests
+);
+
+router.get(
   '/:id',
   auth(),
   rateLimiter({
@@ -83,7 +97,7 @@ router.patch(
       return user.userId;
     },
   }),
-  validateRequest(requestValidation.cancelRequestValidationSchema),
+  validateRequest(requestValidation.requestValidationSchema),
   requestController.cancelRequest
 );
 
@@ -131,7 +145,7 @@ router.delete(
       return user.userId;
     },
   }),
-  validateRequest(requestValidation.deleteRequestValidationSchema),
+  validateRequest(requestValidation.requestValidationSchema),
   requestController.deleteRequest
 );
 

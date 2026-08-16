@@ -1,27 +1,13 @@
-export type TCreateBusinessRequestInput = {
+export type TCreateRequest = {
+  receiverId?: string;
   amount: number;
   reason: string;
   pin: string;
 };
 
-export type TCreatePersonalRequestInput = {
-  receiverId: string;
-  amount: number;
-  reason: string;
+export type TRequest = {
   pin: string;
-};
-
-export type TCancelRequestInput = {
-  pin: string;
-};
-
-export type TDeleteRequestInput = {
-  pin: string;
-};
-
-export type TRejectRequestInput = {
-  pin: string;
-  rejectionReason?: string;
+  rejectionReason: string;
 };
 
 export type TProcessRequestInput = {

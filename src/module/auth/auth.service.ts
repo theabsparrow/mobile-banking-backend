@@ -63,15 +63,17 @@ const registerUser = async (payload: TUser) => {
 
   // Hash password
   const hashedPassword = await hashData(password);
-  const data = {
-    email,
-    password: hashedPassword,
-    name: email.split('@')[0] ?? '',
-  };
-
   // Create pending user in PostgreSQL
   const user = await prisma.user.create({
-    data,
+    data: {
+      email,
+      password: hashedPassword,
+      profile: {
+        create: {
+          name: email.split('@')[0] ?? '',
+        },
+      },
+    },
   });
 
   // Generate and send OTP

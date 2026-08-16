@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { StatusCodes } from 'http-status-codes';
 import { prisma } from '../../config/prismaClient.js';
 import AppError from '../../error/AppError.js';
@@ -45,36 +46,71 @@ const createUser = async (payload: TCreateUser, userId: string) => {
 
   const hashedPassword = await hashData(userPassword);
 
-  const data = {
-    email: payload.email,
-    password: hashedPassword,
-    name: payload.name ?? payload.email.split('@')[0] ?? '',
-    createdById: userId,
-    isDefaultPassword,
-    ...(payload.phone !== undefined ? { phone: payload.phone } : {}),
-    ...(defaultPasswordExpiry !== null ? { defaultPasswordExpiry } : {}),
-  };
-
   const user = await prisma.user.create({
-    data,
+    data: {
+      email: payload.email,
+      password: hashedPassword,
+      createdById: userId,
+      isDefaultPassword,
+      ...(payload.phone !== undefined ? { phone: payload.phone } : {}),
+      ...(defaultPasswordExpiry !== null ? { defaultPasswordExpiry } : {}),
+      profile: {
+        create: {
+          name: payload.name ?? payload.email.split('@')[0] ?? '',
+        },
+      },
+    },
     select: {
       id: true,
-      name: true,
+      profile: {
+        select: {
+          name: true,
+        },
+      },
     },
   });
-  return user;
+  return {
+    id: user.id,
+    name: user.profile?.name ?? '',
+  };
 };
 
 // get all users
 const getAllUsers = async (query: TQuery) => {
   const queryBuilder = new QueryBuilder(query)
-    .search(['name', 'email', 'phone'])
+    .search(['email', 'phone'])
     .filter(['role', 'status'])
     .sort()
     .paginate();
 
-  const where = queryBuilder.getWhere();
-  const orderBy = queryBuilder.getOrderBy();
+  const where = queryBuilder.getWhere() as any;
+  if (query.search) {
+    if (where.OR) {
+      where.OR.push({
+        profile: {
+          name: { contains: String(query.search), mode: 'insensitive' },
+        },
+      });
+    } else {
+      where.OR = [
+        {
+          profile: {
+            name: { contains: String(query.search), mode: 'insensitive' },
+          },
+        },
+      ];
+    }
+  }
+
+  let orderBy = queryBuilder.getOrderBy() as any;
+  if (orderBy.name) {
+    orderBy = {
+      profile: {
+        name: orderBy.name,
+      },
+    };
+  }
+
   const skip = queryBuilder.getSkip();
   const take = queryBuilder.getTake();
 
@@ -84,27 +120,33 @@ const getAllUsers = async (query: TQuery) => {
       orderBy,
       skip,
       take,
-
       select: {
         id: true,
         email: true,
         phone: true,
-        name: true,
-        address: true,
-        image: true,
         role: true,
         isVerified: true,
         isPinSet: true,
         status: true,
         createdAt: true,
         updatedAt: true,
-
+        profile: {
+          select: {
+            name: true,
+            address: true,
+            image: true,
+          },
+        },
         createdBy: {
           select: {
             id: true,
-            name: true,
             email: true,
             role: true,
+            profile: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },
@@ -115,9 +157,32 @@ const getAllUsers = async (query: TQuery) => {
     }),
   ]);
 
+  const mappedUsers = users.map((user) => ({
+    id: user.id,
+    email: user.email,
+    phone: user.phone,
+    name: user.profile?.name ?? null,
+    address: user.profile?.address ?? null,
+    image: user.profile?.image ?? null,
+    role: user.role,
+    isVerified: user.isVerified,
+    isPinSet: user.isPinSet,
+    status: user.status,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    createdBy: user.createdBy
+      ? {
+          id: user.createdBy.id,
+          email: user.createdBy.email,
+          role: user.createdBy.role,
+          name: user.createdBy.profile?.name ?? null,
+        }
+      : null,
+  }));
+
   return {
     meta: queryBuilder.getPaginationMeta(total),
-    data: users,
+    data: mappedUsers,
   };
 };
 
@@ -131,9 +196,6 @@ const getUserById = async (id: string) => {
       id: true,
       email: true,
       phone: true,
-      name: true,
-      address: true,
-      image: true,
       role: true,
       isVerified: true,
       isPinSet: true,
@@ -141,13 +203,24 @@ const getUserById = async (id: string) => {
       createdAt: true,
       updatedAt: true,
       maxDeviceAllowed: true,
+      profile: {
+        select: {
+          name: true,
+          address: true,
+          image: true,
+        },
+      },
 
       createdBy: {
         select: {
           id: true,
-          name: true,
           email: true,
           role: true,
+          profile: {
+            select: {
+              name: true,
+            },
+          },
         },
       },
 
@@ -171,7 +244,33 @@ const getUserById = async (id: string) => {
       },
     },
   });
-  return user;
+
+  if (!user) return null;
+
+  return {
+    id: user.id,
+    email: user.email,
+    phone: user.phone,
+    name: user.profile?.name ?? null,
+    address: user.profile?.address ?? null,
+    image: user.profile?.image ?? null,
+    role: user.role,
+    isVerified: user.isVerified,
+    isPinSet: user.isPinSet,
+    status: user.status,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    maxDeviceAllowed: user.maxDeviceAllowed,
+    createdBy: user.createdBy
+      ? {
+          id: user.createdBy.id,
+          email: user.createdBy.email,
+          role: user.createdBy.role,
+          name: user.createdBy.profile?.name ?? null,
+        }
+      : null,
+    sessions: user.sessions,
+  };
 };
 
 // update a user
@@ -184,7 +283,11 @@ const updateUser = async (userId: string, payload: Partial<TUser>) => {
       id: true,
       email: true,
       phone: true,
-      name: true,
+      profile: {
+        select: {
+          name: true,
+        },
+      },
     },
   });
 
@@ -193,27 +296,55 @@ const updateUser = async (userId: string, payload: Partial<TUser>) => {
   }
 
   // Check email uniqueness
-  if (payload.email && payload.email === user.email) {
-    throw new AppError(StatusCodes.CONFLICT, 'Email is already registered.');
+  if (payload.email && payload.email !== user.email) {
+    const existingEmail = await prisma.user.findUnique({
+      where: {
+        email: payload.email,
+      },
+    });
+    if (existingEmail) {
+      throw new AppError(StatusCodes.CONFLICT, 'Email is already registered.');
+    }
   }
 
   // Check phone uniqueness
-  if (payload.phone && payload.phone === user.phone) {
-    throw new AppError(StatusCodes.CONFLICT, 'Phone number is already registered.');
+  if (payload.phone && payload.phone !== user.phone) {
+    const existingPhone = await prisma.user.findUnique({
+      where: {
+        phone: payload.phone,
+      },
+    });
+    if (existingPhone) {
+      throw new AppError(StatusCodes.CONFLICT, 'Phone number is already registered.');
+    }
   }
 
   const emailChanged = payload.email !== undefined && payload.email !== user.email;
+
+  const userFields: Record<string, any> = {};
+  if (payload.email !== undefined) userFields.email = payload.email;
+  if (payload.phone !== undefined) userFields.phone = payload.phone;
+  if (emailChanged) userFields.isVerified = false;
+
+  const profileFields: Record<string, any> = {};
+  if (payload.name !== undefined) profileFields.name = payload.name;
+  if (payload.address !== undefined) profileFields.address = payload.address;
+  if (payload.image !== undefined) profileFields.image = payload.image;
 
   const updatedUser = await prisma.user.update({
     where: {
       id: userId,
     },
     data: {
-      ...payload,
-
-      ...(emailChanged
+      ...userFields,
+      ...(Object.keys(profileFields).length > 0
         ? {
-            isVerified: false,
+            profile: {
+              upsert: {
+                create: profileFields,
+                update: profileFields,
+              },
+            },
           }
         : {}),
     },
@@ -221,17 +352,37 @@ const updateUser = async (userId: string, payload: Partial<TUser>) => {
       id: true,
       email: true,
       phone: true,
-      name: true,
-      address: true,
-      image: true,
       role: true,
       isVerified: true,
       isPinSet: true,
       status: true,
       createdAt: true,
       updatedAt: true,
+      profile: {
+        select: {
+          name: true,
+          address: true,
+          image: true,
+        },
+      },
     },
   });
+
+  const mappedUpdatedUser = {
+    id: updatedUser.id,
+    email: updatedUser.email,
+    phone: updatedUser.phone,
+    name: updatedUser.profile?.name ?? null,
+    address: updatedUser.profile?.address ?? null,
+    image: updatedUser.profile?.image ?? null,
+    role: updatedUser.role,
+    isVerified: updatedUser.isVerified,
+    isPinSet: updatedUser.isPinSet,
+    status: updatedUser.status,
+    createdAt: updatedUser.createdAt,
+    updatedAt: updatedUser.updatedAt,
+  };
+
   await invalidateAuthUserCache(userId);
   if (emailChanged) {
     const otpData = await sendOtpFlow({
@@ -241,13 +392,13 @@ const updateUser = async (userId: string, payload: Partial<TUser>) => {
     });
 
     return {
-      user: updatedUser,
+      user: mappedUpdatedUser,
       verificationId: otpData.verificationId,
       requiresEmailVerification: true,
     };
   } else {
     return {
-      user: updatedUser,
+      user: mappedUpdatedUser,
       verificationId: null,
       requiresEmailVerification: false,
     };
@@ -255,26 +406,64 @@ const updateUser = async (userId: string, payload: Partial<TUser>) => {
 };
 
 const searchUsers = async (query: TQuery) => {
-  const search = query.search?.trim();
+  const name = typeof query.name === 'string' ? query.name.trim() : '';
+  const email = typeof query.email === 'string' ? query.email.trim() : '';
+  const phone = typeof query.phone === 'string' ? query.phone.trim() : '';
+  const search = typeof query.search === 'string' ? query.search.trim() : '';
 
-  // Search query mandatory
-  if (!search) {
+  if (!name && !email && !phone && !search) {
     throw new AppError(StatusCodes.BAD_REQUEST, 'Search query is required.');
   }
 
   const queryBuilder = new QueryBuilder(query)
-    .search(['name', 'email', 'phone'])
     .sort('name')
     .paginate();
 
-  const where = {
-    ...queryBuilder.getWhere(),
+  const orConditions: any[] = [];
+  if (name) {
+    orConditions.push({
+      profile: {
+        name: { contains: name, mode: 'insensitive' },
+      },
+    });
+  }
+  if (email) {
+    orConditions.push({
+      email: { contains: email, mode: 'insensitive' },
+    });
+  }
+  if (phone) {
+    orConditions.push({
+      phone: { contains: phone, mode: 'insensitive' },
+    });
+  }
+  if (search) {
+    orConditions.push(
+      { email: { contains: search, mode: 'insensitive' } },
+      { phone: { contains: search, mode: 'insensitive' } },
+      {
+        profile: {
+          name: { contains: search, mode: 'insensitive' },
+        },
+      }
+    );
+  }
 
-    // Only CUSTOMER and AGENT can be discovered
+  const where = {
     role: {
       in: [Role.CUSTOMER, Role.AGENT],
     },
-  };
+    OR: orConditions,
+  } as any;
+
+  let orderBy = queryBuilder.getOrderBy() as any;
+  if (orderBy.name) {
+    orderBy = {
+      profile: {
+        name: orderBy.name,
+      },
+    };
+  }
 
   const [users, total] = await Promise.all([
     prisma.user.findMany({
@@ -282,15 +471,19 @@ const searchUsers = async (query: TQuery) => {
       skip: queryBuilder.getSkip(),
       take: queryBuilder.getTake(),
 
-      orderBy: queryBuilder.getOrderBy(),
+      orderBy,
 
       select: {
         id: true,
-        name: true,
         email: true,
         phone: true,
-        image: true,
         role: true,
+        profile: {
+          select: {
+            name: true,
+            image: true,
+          },
+        },
       },
     }),
 
@@ -299,8 +492,17 @@ const searchUsers = async (query: TQuery) => {
     }),
   ]);
 
+  const mappedUsers = users.map((u) => ({
+    id: u.id,
+    email: u.email,
+    phone: u.phone,
+    role: u.role,
+    name: u.profile?.name ?? null,
+    image: u.profile?.image ?? null,
+  }));
+
   return {
-    data: users,
+    data: mappedUsers,
     meta: queryBuilder.getPaginationMeta(total),
   };
 };
@@ -316,12 +518,16 @@ const checkUsers = async (payload: TLoginData) => {
       OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])],
     },
     select: {
-      name: true,
       email: true,
       phone: true,
       role: true,
       status: true,
       isVerified: true,
+      profile: {
+        select: {
+          name: true,
+        },
+      },
     },
   });
 
@@ -338,7 +544,14 @@ const checkUsers = async (payload: TLoginData) => {
   if (!user.isVerified) {
     throw new AppError(StatusCodes.UNAUTHORIZED, 'Invalid credentials');
   }
-  return user
+  return {
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    status: user.status,
+    isVerified: user.isVerified,
+    name: user.profile?.name ?? null,
+  };
 };
 
 export const userService = {

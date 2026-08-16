@@ -1,16 +1,15 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { StatusCodes } from 'http-status-codes';
 import { prisma } from '../../config/prismaClient.js';
 import AppError from '../../error/AppError.js';
 import { redisClient } from '../../redis/redis.client.js';
 import type { TCreateContact } from './userContact.interface.js';
-
-const invalidateContactsCache = async (ownerId: string) => {
-  await redisClient.del(`contacts:user:${ownerId}`);
-};
+import { invalidateContactsCache } from './userContact.utills.js';
+import { QueryBuilder } from '../../builder/QueryBuilder.js';
+import type { TQuery } from '../user/user.interface.js';
 
 const createContact = async (ownerId: string, payload: TCreateContact) => {
   const { savedUserId, customName } = payload;
-
   if (ownerId === savedUserId) {
     throw new AppError(StatusCodes.BAD_REQUEST, 'You cannot save yourself as a contact.');
   }
@@ -19,6 +18,15 @@ const createContact = async (ownerId: string, payload: TCreateContact) => {
   const targetUser = await prisma.user.findUnique({
     where: {
       id: savedUserId,
+    },
+    select: {
+      id: true,
+      email: true,
+      profile: {
+        select: {
+          name: true,
+        },
+      },
     },
   });
 
@@ -44,17 +52,22 @@ const createContact = async (ownerId: string, payload: TCreateContact) => {
     data: {
       ownerId,
       savedUserId,
-      customName: customName ?? null,
+      customName: customName ?? targetUser?.profile?.name ?? targetUser?.email.split('@')[0] ?? '',
     },
     include: {
       savedUser: {
         select: {
           id: true,
-          name: true,
           email: true,
           phone: true,
-          image: true,
           role: true,
+          profile: {
+            select: {
+              name: true,
+              image: true,
+              address: true,
+            },
+          },
         },
       },
     },
@@ -62,36 +75,61 @@ const createContact = async (ownerId: string, payload: TCreateContact) => {
 
   // Invalidate cache
   await invalidateContactsCache(ownerId);
-
   return contact;
 };
 
-const getContacts = async (ownerId: string) => {
-  const cacheKey = `contacts:user:${ownerId}`;
+const getContacts = async (ownerId: string, query: TQuery) => {
+  const search = typeof query.search === 'string' ? query.search.trim() : '';
+  const cacheKey = `contacts:user:${ownerId}:${search}`;
   const cached = await redisClient.get(cacheKey);
   if (cached) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return JSON.parse(cached);
   }
 
+  const queryBuilder = new QueryBuilder(query).search(['customName']);
+
+  const where = queryBuilder.getWhere() as any;
+  where.ownerId = ownerId;
+
+  if (search) {
+    if (!where.OR) {
+      where.OR = [];
+    }
+    where.OR.push(
+      {
+        savedUser: {
+          email: { contains: search, mode: 'insensitive' },
+        },
+      },
+      {
+        savedUser: {
+          phone: { contains: search, mode: 'insensitive' },
+        },
+      }
+    );
+  }
+
   const contacts = await prisma.userContact.findMany({
-    where: {
-      ownerId,
+    where,
+    orderBy: {
+      customName: 'asc',
     },
     include: {
       savedUser: {
         select: {
           id: true,
-          name: true,
           email: true,
           phone: true,
-          image: true,
           role: true,
+          profile: {
+            select: {
+              name: true,
+              image: true,
+              address: true,
+            },
+          },
         },
       },
-    },
-    orderBy: {
-      createdAt: 'desc',
     },
   });
 
@@ -112,11 +150,16 @@ const getContactById = async (ownerId: string, contactId: string) => {
       savedUser: {
         select: {
           id: true,
-          name: true,
           email: true,
           phone: true,
-          image: true,
           role: true,
+          profile: {
+            select: {
+              name: true,
+              image: true,
+              address: true,
+            },
+          },
         },
       },
     },
@@ -133,11 +176,16 @@ const getContactById = async (ownerId: string, contactId: string) => {
   return contact;
 };
 
-const updateContact = async (ownerId: string, contactId: string, payload: Partial<TCreateContact>) => {
-
+const updateContact = async (ownerId: string, id: string, payload: Partial<TCreateContact>) => {
+  const { savedUserId } = payload;
   const contact = await prisma.userContact.findUnique({
     where: {
-      id: contactId,
+      id,
+    },
+    select: {
+      id: true,
+      ownerId: true,
+      savedUserId: true,
     },
   });
 
@@ -149,28 +197,39 @@ const updateContact = async (ownerId: string, contactId: string, payload: Partia
     throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to update this contact.');
   }
 
+  if (savedUserId === ownerId) {
+    throw new AppError(StatusCodes.BAD_REQUEST, 'You cannot save yourself as a contact.');
+  }
+
+  if (savedUserId) {
+    const user = await prisma.user.findUnique({
+      where: {
+        id: savedUserId,
+      },
+      select: {
+        id: true,
+        isVerified: true,
+        status: true,
+      },
+    });
+    if (!user) {
+      throw new AppError(StatusCodes.FORBIDDEN, 'You cannot add this user as a contact.');
+    }
+
+    if (!user?.isVerified || user?.status !== 'ACTIVE') {
+      throw new AppError(StatusCodes.FORBIDDEN, 'You cannot add this user as a contact.');
+    }
+  }
+
   const updatedContact = await prisma.userContact.update({
     where: {
-      id: contactId,
+      id,
     },
     data: payload,
-    include: {
-      savedUser: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          phone: true,
-          image: true,
-          role: true,
-        },
-      },
-    },
   });
 
   // Invalidate cache
   await invalidateContactsCache(ownerId);
-
   return updatedContact;
 };
 
@@ -197,7 +256,6 @@ const deleteContact = async (ownerId: string, contactId: string) => {
 
   // Invalidate cache
   await invalidateContactsCache(ownerId);
-
   return null;
 };
 

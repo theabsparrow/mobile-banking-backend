@@ -13,11 +13,7 @@ const createPersonalRequestValidationSchema = z.object({
   pin: z.string().regex(/^\d{6}$/, 'PIN must be exactly 6 digits'),
 });
 
-const cancelRequestValidationSchema = z.object({
-  pin: z.string().regex(/^\d{6}$/, 'PIN must be exactly 6 digits'),
-});
-
-const deleteRequestValidationSchema = z.object({
+const requestValidationSchema = z.object({
   pin: z.string().regex(/^\d{6}$/, 'PIN must be exactly 6 digits'),
 });
 
@@ -37,8 +33,7 @@ const processRequestValidationSchema = z.object({
 export const requestValidation = {
   createBusinessRequestValidationSchema,
   createPersonalRequestValidationSchema,
-  cancelRequestValidationSchema,
-  deleteRequestValidationSchema,
+requestValidationSchema,
   rejectRequestValidationSchema,
   processRequestValidationSchema,
 };

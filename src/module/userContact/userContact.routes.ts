@@ -5,8 +5,7 @@ import type { TJwtPayload } from '../auth/auth.utills.js';
 import validateRequest from '../../middlewire/validateRequest.js';
 import { userContactController } from './userContact.controller.js';
 import { userContactValidation } from './userContact.validation.js';
-
-const router = Router();
+import { router } from '../../config/express.js';
 
 router.post(
   '/',
