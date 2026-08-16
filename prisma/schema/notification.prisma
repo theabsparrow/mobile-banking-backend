@@ -1,0 +1,27 @@
+enum NotificationType {
+  FUND_REQUEST_CREATED
+  FUND_REQUEST_APPROVED
+  FUND_REQUEST_REJECTED
+  FUND_REQUEST_CANCELLED
+  TRANSACTION_SUCCESS
+  TRANSACTION_FAILED
+  CASH_IN
+  CASH_OUT
+  SEND_MONEY
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  type        NotificationType
+  title       String
+  message     String
+  referenceId String?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}

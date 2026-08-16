@@ -5,25 +5,25 @@ enum RequestStatus {
   CANCELLED
 }
 
-
 model Request {
-  id               String        @id @default(uuid())
-  requesterId      String
-  receiverId       String
-  amount           Decimal       @db.Decimal(18, 2)
-  reason           String
-  status           RequestStatus @default(PENDING)
-  processedById    String?
-  adminNote        String?
-  rejectionReason  String?
-  transactionId    String?
-  processedAt      DateTime?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id              String        @id @default(uuid())
+  requesterId     String
+  receiverId      String
+  amount          Decimal       @db.Decimal(18, 2)
+  reason          String
+  status          RequestStatus @default(PENDING)
+  processedById   String?
+  adminNote       String?
+  rejectionReason String?
+  transactionId   String?
+  processedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  requester        User          @relation("FundRequestRequester", fields: [requesterId], references: [id])
-  receiver         User          @relation("FundRequestReceiver", fields: [receiverId], references: [id])
-  processedBy      User?         @relation("FundRequestProcessedBy", fields: [processedById], references: [id])
+  // relations
+  requester   User  @relation("RequestRequester", fields: [requesterId], references: [id])
+  receiver    User  @relation("RequestReceiver", fields: [receiverId], references: [id])
+  processedBy User? @relation("RequestProcessedBy", fields: [processedById], references: [id])
 
   @@index([requesterId])
   @@index([receiverId])
@@ -31,4 +31,3 @@ model Request {
   @@index([createdAt])
   @@map("requests")
 }
-

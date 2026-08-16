@@ -6,6 +6,7 @@ model UserContact {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // relations
   owner     User @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   savedUser User @relation("SavedUser", fields: [savedUserId], references: [id], onDelete: Cascade)
 

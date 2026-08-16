@@ -1,8 +1,8 @@
 enum TransactionType {
-   SEND_MONEY
-  CASH_IN
-  CASH_OUT
-  REFUND
+    SEND_MONEY
+    CASH_IN
+    CASH_OUT
+    REFUND
 }
 
 enum TransactionStatus {
@@ -15,24 +15,21 @@ enum TransactionStatus {
 }
 
 model Transaction {
-    id          String            @id @default(uuid())
-    reference   String            @unique
-    type        TransactionType
-    status      TransactionStatus
-    amount      Decimal           @db.Decimal(18, 2)
-    fee         Decimal           @default(0) @db.Decimal(18, 2)
-    totalAmount Decimal           @db.Decimal(18, 2)
-
+    id               String            @id @default(uuid())
+    reference        String            @unique
+    type             TransactionType
+    status           TransactionStatus
+    amount           Decimal           @db.Decimal(18, 2)
+    fee              Decimal           @default(0) @db.Decimal(18, 2)
+    totalAmount      Decimal           @db.Decimal(18, 2)
     senderWalletId   String?
     receiverWalletId String?
     initiatedById    String
+    description      String?
+    createdAt        DateTime          @default(now())
+    updatedAt        DateTime          @updatedAt
 
-    description String?
-    metadata    Json?
-
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
+    // realtions
     senderWallet   Wallet?        @relation("TransactionSender", fields: [senderWalletId], references: [id])
     receiverWallet Wallet?        @relation("TransactionReceiver", fields: [receiverWalletId], references: [id])
     initiatedBy    User           @relation(fields: [initiatedById], references: [id])
@@ -46,5 +43,3 @@ model Transaction {
     @@index([createdAt])
     @@map("transactions")
 }
-
-

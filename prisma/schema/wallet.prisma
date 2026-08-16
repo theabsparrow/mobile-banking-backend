@@ -5,17 +5,15 @@ enum WalletStatus {
 }
 
 model Wallet {
-  id     String @id @default(uuid())
-  userId String @unique
+  id        String       @id @default(uuid())
+  userId    String       @unique
+  balance   Decimal      @default(0) @db.Decimal(18, 2)
+  currency  String       @default("BDT")
+  status    WalletStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
-  balance  Decimal @default(0) @db.Decimal(18, 2)
-  currency String  @default("BDT")
-
-  status WalletStatus @default(ACTIVE)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
+  // relations
   user                 User           @relation(fields: [userId], references: [id])
   sentTransactions     Transaction[]  @relation("TransactionSender")
   receivedTransactions Transaction[]  @relation("TransactionReceiver")
