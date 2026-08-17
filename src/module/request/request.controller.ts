@@ -41,12 +41,13 @@ const createPersonalRequest = catchAsync(
 // get request
 const getRequests = catchAsync(async (req: Request, res: Response) => {
   const { userId, userRole } = req.user as TJwtPayload;
-  const result = await requestService.getRequests(userId, userRole as Role);
+  const result = await requestService.getRequests(userId, userRole as Role, req.query);
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
     message: 'Money requests retrieved successfully.',
-    data: result,
+    meta: result.meta,
+    data: result.data,
   });
 });
 
@@ -64,9 +65,9 @@ const getMyRequests = catchAsync(async (req: Request, res: Response) => {
 
 // get request by id
 const getRequestById = catchAsync(async (req: Request, res: Response) => {
-  const { userId } = req.user as TJwtPayload;
+  const { userId, userRole } = req.user as TJwtPayload;
   const id = req.params.id as string;
-  const result = await requestService.getRequestById(userId, id);
+  const result = await requestService.getRequestById(userId, userRole as Role, id);
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
@@ -91,7 +92,7 @@ const cancelRequest = catchAsync(async (req: Request, res: Response) => {
 
 // reject request
 const rejectRequest = catchAsync(async (req: Request, res: Response) => {
-  const { userId } = req.user as TJwtPayload;
+  const {userId} = req.user as TJwtPayload;
   const id = req.params.id as string;
   const payload = req.body as TRequest;
   const result = await requestService.rejectRequest(userId, id, payload);

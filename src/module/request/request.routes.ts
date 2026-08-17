@@ -42,7 +42,7 @@ router.post(
 
 router.get(
   '/',
-  auth(),
+  auth(Role.ADMIN, Role.SUPER_ADMIN),
   rateLimiter({
     keyPrefix: 'rl:req:list:',
     windowMs: 60 * 1000,

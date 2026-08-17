@@ -1,43 +1,12 @@
-import { Role, type TransactionType } from '@prisma/client';
+import { RequestStatus, Role, type TransactionType } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
 import { prisma } from '../../config/prismaClient.js';
 import AppError from '../../error/AppError.js';
 import { getIO } from '../../socket/server.js';
-import { invalidateAuthUserCache } from '../auth/auth.utills.js';
+import { invalidateAuthUserCache} from '../auth/auth.utills.js';
 import type { TProcessRequestInput, TCreateRequest, TRequest } from './request.interface.js';
 import { verifyUserPin } from '../../utills/verifyPin.js';
-
-interface IPrismaTx {
-  wallet: typeof prisma.wallet;
-}
-
-// Helper to ensure a wallet exists for the user
-const getOrCreateWallet = async (userId: string, tx: IPrismaTx = prisma) => {
-  let wallet = await tx.wallet.findUnique({
-    where: { userId },
-  });
-  if (!wallet) {
-    wallet = await tx.wallet.create({
-      data: {
-        userId,
-        balance: 0.0,
-      },
-    });
-  }
-  return wallet;
-};
-
-const requestUserSelect = {
-  id: true,
-  email: true,
-  phone: true,
-  role: true,
-  profile: {
-    select: {
-      name: true,
-    },
-  },
-};
+import type { TQuery } from '../user/user.interface.js';
 
 // cretae business request
 const createBusinessRequest = async (id: string, payload: TCreateRequest) => {
@@ -55,7 +24,6 @@ const createBusinessRequest = async (id: string, payload: TCreateRequest) => {
   });
   return request;
 };
-
 
 // create personal request
 const createPersonalRequest = async (id: string, payload: TCreateRequest) => {
@@ -78,80 +46,51 @@ const createPersonalRequest = async (id: string, payload: TCreateRequest) => {
   return request;
 };
 
-
 // get requests
-const getRequests = async (userId: string, role: Role) => {
+const getRequests = async (userId: string, role: Role, query: TQuery) => {
   let requests;
-  if (role === Role.ADMIN || role === Role.SUPER_ADMIN) {
-    requests = await prisma.request.findMany({
+  if (role === Role.SUPER_ADMIN) {
+    requests = prisma.request.findMany();
+  } else {
+    requests = prisma.request.findMany({
       where: {
         OR: [
-          { requesterId: userId },
-          { receiverId: userId },
-          { status: 'PENDING' },
-          { processedById: userId },
+          {
+            status: RequestStatus.PENDING,
+          },
+          {
+            status: RequestStatus.CANCELLED,
+          },
+          {
+            processedById: userId,
+          },
+          {
+            receiverId: userId,
+          },
         ],
       },
-      include: {
-        requester: { select: requestUserSelect },
-        receiver: { select: requestUserSelect },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-  } else {
-    requests = await prisma.request.findMany({
-      where: {
-        OR: [{ requesterId: userId }, { receiverId: userId }],
-      },
-      include: {
-        requester: { select: requestUserSelect },
-        receiver: { select: requestUserSelect },
-      },
-      orderBy: { createdAt: 'desc' },
     });
   }
-  return requests.map(mapRequest);
+  return requests;
 };
 
+// get my requests
 const getMyRequests = async (userId: string) => {
-  let requests;
-  if (role === Role.ADMIN || role === Role.SUPER_ADMIN) {
-    requests = await prisma.request.findMany({
-      where: {
-        OR: [
-          { requesterId: userId },
-          { receiverId: userId },
-          { status: 'PENDING' },
-          { processedById: userId },
-        ],
-      },
-      include: {
-        requester: { select: requestUserSelect },
-        receiver: { select: requestUserSelect },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-  } else {
-    requests = await prisma.request.findMany({
-      where: {
-        OR: [{ requesterId: userId }, { receiverId: userId }],
-      },
-      include: {
-        requester: { select: requestUserSelect },
-        receiver: { select: requestUserSelect },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-  return requests.map(mapRequest);
+  const requests = await prisma.request.findMany({
+    where: {
+      OR: [{ requesterId: userId }, { receiverId: userId }],
+    },
+
+    orderBy: { createdAt: 'desc' },
+  });
+  return requests;
 };
 
-const getRequestById = async (userId: string, requestId: string) => {
+// get requests by id
+const getRequestById = async (userId: string, role: Role, id: string) => {
   const request = await prisma.request.findUnique({
-    where: { id: requestId },
-    include: {
-      requester: { select: requestUserSelect },
-      receiver: { select: requestUserSelect },
+    where: {
+      id,
     },
   });
 
@@ -159,31 +98,31 @@ const getRequestById = async (userId: string, requestId: string) => {
     throw new AppError(StatusCodes.NOT_FOUND, 'Money request not found.');
   }
 
-  // Agents and Customers can only see requests they are involved in
-  if (
-    role !== Role.ADMIN &&
-    role !== Role.SUPER_ADMIN &&
-    request.requesterId !== userId &&
-    request.receiverId !== userId
-  ) {
-    throw new AppError(StatusCodes.FORBIDDEN, 'Access denied.');
+  // Super Admin can see any request
+  if (role === Role.SUPER_ADMIN) {
+    return request;
   }
 
-  // Admins can only see pending requests or requests they processed
-  if (
-    (role === Role.ADMIN || role === Role.SUPER_ADMIN) &&
-    request.requesterId !== userId &&
-    request.receiverId !== userId &&
-    request.status !== 'PENDING' &&
-    request.processedById !== userId
-  ) {
+  // Admin access
+  const userAccess =
+    request.requesterId === userId ||
+    request.receiverId === userId ||
+    request.processedById === userId;
+
+  const hasAccess =
+    role === Role.ADMIN
+      ? userAccess ||
+        request.status === RequestStatus.PENDING ||
+        request.status === RequestStatus.CANCELLED
+      : userAccess;
+  if (!hasAccess) {
     throw new AppError(StatusCodes.FORBIDDEN, 'Access denied.');
   }
-
   return request;
 };
 
-const cancelRequest = async (userId: string, requestId: string, payload: TRequest) => {
+// cancell request
+const cancelRequest = async (userId: string, id: string, payload: TRequest) => {
   const { pin } = payload;
 
   // 1. Verify PIN
@@ -191,32 +130,33 @@ const cancelRequest = async (userId: string, requestId: string, payload: TReques
 
   // 2. Find request
   const request = await prisma.request.findUnique({
-    where: { id: requestId },
+    where: { id },
   });
 
   if (!request) {
     throw new AppError(StatusCodes.NOT_FOUND, 'Money request not found.');
-  }
-
-  if (request.requesterId !== userId) {
-    throw new AppError(StatusCodes.FORBIDDEN, 'Only the requester can cancel this request.');
   }
 
   if (request.status !== 'PENDING') {
     throw new AppError(StatusCodes.BAD_REQUEST, 'Only pending requests can be cancelled.');
   }
 
-  const updatedRequest = await prisma.request.update({
-    where: { id: requestId },
+  if (request.requesterId !== userId) {
+    throw new AppError(StatusCodes.FORBIDDEN, 'Only the requester can cancel this request.');
+  }
+
+  const result = await prisma.request.update({
+    where: { id },
     data: {
       status: 'CANCELLED',
     },
   });
 
-  return updatedRequest;
+  return result;
 };
 
-const deleteRequest = async (userId: string, requestId: string, payload: TRequest) => {
+// delete request
+const deleteRequest = async (userId: string, id: string, payload: TRequest) => {
   const { pin } = payload;
 
   // 1. Verify PIN
@@ -224,7 +164,7 @@ const deleteRequest = async (userId: string, requestId: string, payload: TReques
 
   // 2. Find request
   const request = await prisma.request.findUnique({
-    where: { id: requestId },
+    where: { id },
   });
 
   if (!request) {
@@ -236,23 +176,25 @@ const deleteRequest = async (userId: string, requestId: string, payload: TReques
   }
 
   await prisma.request.delete({
-    where: { id: requestId },
+    where: { id },
   });
-
   return null;
 };
 
-const rejectRequest = async (userId: string, requestId: string, payload: TRequest) => {
+const rejectRequest = async (userId: string, id: string, payload: TRequest) => {
   const { pin, rejectionReason } = payload;
-
   // 1. Verify PIN
-  await verifyUserPin(userId, pin);
+  const isPinVerified = await verifyUserPin(userId, pin);
+  if (!isPinVerified) {
+    throw new AppError(StatusCodes.FORBIDDEN, 'incorrect pin.');
+  }
 
   // 2. Find request
   const request = await prisma.request.findUnique({
-    where: { id: requestId },
-    include: {
-      receiver: { select: { role: true } },
+    where: { id },
+    select: {
+      receiverId: true,
+      status: true,
     },
   });
 
@@ -264,16 +206,12 @@ const rejectRequest = async (userId: string, requestId: string, payload: TReques
     throw new AppError(StatusCodes.BAD_REQUEST, 'Only pending requests can be rejected.');
   }
 
-  // Admins can reject business requests; Receivers can reject personal requests
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  const isAdmin = user?.role === Role.ADMIN || user?.role === Role.SUPER_ADMIN;
-
-  if (request.receiverId !== userId && !isAdmin) {
-    throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to reject this request.');
+  if (request?.receiverId && request?.receiverId !== userId) {
+    throw new AppError(StatusCodes.UNAUTHORIZED, 'You can`t reject this request');
   }
 
   const updatedRequest = await prisma.request.update({
-    where: { id: requestId },
+    where: { id },
     data: {
       status: 'REJECTED',
       processedById: userId,
@@ -288,7 +226,21 @@ const approveRequest = async (userId: string, requestId: string, payload: TProce
   const { pin, adminNote } = payload;
 
   // 1. Verify PIN
-  const approver = await verifyUserPin(userId, pin);
+  const isPinVerified = await verifyUserPin(userId, pin);
+  if (!isPinVerified) {
+    throw new AppError(StatusCodes.FORBIDDEN, 'incorrect pin.');
+  }
+
+  const approver = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      profile: { select: { name: true } },
+    },
+  });
+
+  if (!approver) {
+    throw new AppError(StatusCodes.NOT_FOUND, 'Approver user not found.');
+  }
 
   // 2. Find request
   const request = await prisma.request.findUnique({
