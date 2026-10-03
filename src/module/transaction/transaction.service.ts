@@ -1,4 +1,4 @@
-import { Role } from '@prisma/client';
+import { Role, type TransactionType } from '@prisma/client';
 import { StatusCodes } from 'http-status-codes';
 import { prisma } from '../../config/prismaClient.js';
 import AppError from '../../error/AppError.js';
@@ -12,7 +12,7 @@ interface IPrismaTx {
 }
 
 // Helper to ensure a wallet exists for the user
-const getOrCreateWallet = async (userId: string, tx: IPrismaTx = prisma) => {
+export const getOrCreateWallet = async (userId: string, tx: IPrismaTx = prisma) => {
   let wallet = await tx.wallet.findUnique({
     where: { userId },
   });
@@ -41,6 +41,169 @@ const verifyUserPin = async (userId: string, pin: string) => {
     throw new AppError(StatusCodes.UNAUTHORIZED, 'Invalid PIN.');
   }
   return user;
+};
+
+export const SEND_MONEY_FEE = 5;
+export const CASH_IN_FEE = 0;
+
+export interface IExecuteTransferPayload {
+  senderId: string;
+  receiverId: string;
+  amount: number;
+  fee?: number;
+  type?: TransactionType;
+  description?: string;
+  checkBalance?: boolean;
+}
+
+// Core reusable money transfer function
+const executeMoneyTransfer = async (
+  payload: IExecuteTransferPayload,
+  externalTx?: any
+) => {
+  const {
+    senderId,
+    receiverId,
+    amount,
+    type = 'SEND_MONEY',
+    description,
+    checkBalance = true,
+  } = payload;
+
+  const fee = payload.fee !== undefined ? payload.fee : (type === 'SEND_MONEY' ? SEND_MONEY_FEE : 0);
+  const totalDeductAmount = amount + fee;
+
+  const runTransfer = async (tx: any) => {
+    const senderWallet = await getOrCreateWallet(senderId, tx);
+    const receiverWallet = await getOrCreateWallet(receiverId, tx);
+
+    if (checkBalance && Number(senderWallet.balance) < totalDeductAmount) {
+      throw new AppError(
+        StatusCodes.BAD_REQUEST,
+        `Insufficient balance. You need BDT ${totalDeductAmount} (Amount: ${amount} + Fee: ${fee}) to complete this transfer.`
+      );
+    }
+
+    // Deduct sender wallet & user balance by totalDeductAmount (amount + fee)
+    const updatedSenderWallet = await tx.wallet.update({
+      where: { id: senderWallet.id },
+      data: { balance: { decrement: totalDeductAmount } },
+    });
+
+    await tx.user.update({
+      where: { id: senderId },
+      data: { balance: { decrement: totalDeductAmount } },
+    });
+
+    // Credit receiver wallet & user balance by amount
+    const updatedReceiverWallet = await tx.wallet.update({
+      where: { id: receiverWallet.id },
+      data: { balance: { increment: amount } },
+    });
+
+    await tx.user.update({
+      where: { id: receiverId },
+      data: { balance: { increment: amount } },
+    });
+
+    const prefix = type === 'CASH_IN' ? 'TXN-CI' : type === 'CASH_OUT' ? 'TXN-CO' : 'TXN-SM';
+    const reference = `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+
+    const transaction = await tx.transaction.create({
+      data: {
+        reference,
+        type,
+        status: 'COMPLETED',
+        amount,
+        fee,
+        totalAmount: totalDeductAmount,
+        senderWalletId: senderWallet.id,
+        receiverWalletId: receiverWallet.id,
+        initiatedById: senderId,
+        description: description || `Transfer of BDT ${amount}`,
+      },
+    });
+
+    await tx.walletLedger.create({
+      data: {
+        walletId: senderWallet.id,
+        transactionId: transaction.id,
+        type: 'DEBIT',
+        amount: totalDeductAmount,
+        balanceBefore: senderWallet.balance,
+        balanceAfter: Number(senderWallet.balance) - totalDeductAmount,
+      },
+    });
+
+    await tx.walletLedger.create({
+      data: {
+        walletId: receiverWallet.id,
+        transactionId: transaction.id,
+        type: 'CREDIT',
+        amount,
+        balanceBefore: receiverWallet.balance,
+        balanceAfter: Number(receiverWallet.balance) + amount,
+      },
+    });
+
+    return {
+      transaction,
+      fee,
+      totalAmount: totalDeductAmount,
+      senderBalance: Number(updatedSenderWallet.balance),
+      receiverBalance: Number(updatedReceiverWallet.balance),
+    };
+  };
+
+  let result;
+  if (externalTx) {
+    result = await runTransfer(externalTx);
+  } else {
+    result = await prisma.$transaction(async (tx) => {
+      return await runTransfer(tx);
+    });
+  }
+
+  if (!externalTx) {
+    await invalidateAuthUserCache(senderId);
+    await invalidateAuthUserCache(receiverId);
+
+    const io = getIO();
+    io.to(receiverId).emit('balance-updated', { balance: result.receiverBalance });
+    io.to(senderId).emit('balance-updated', { balance: result.senderBalance });
+  }
+
+  return result;
+};
+
+// Helper specifically for Send Money transfer
+const executeSendMoneyTransfer = async (
+  payload: Omit<IExecuteTransferPayload, 'type'>,
+  externalTx?: any
+) => {
+  return executeMoneyTransfer(
+    {
+      ...payload,
+      type: 'SEND_MONEY',
+      fee: payload.fee !== undefined ? payload.fee : SEND_MONEY_FEE,
+    },
+    externalTx
+  );
+};
+
+// Helper specifically for Cash In transfer
+const executeCashInTransfer = async (
+  payload: Omit<IExecuteTransferPayload, 'type'>,
+  externalTx?: any
+) => {
+  return executeMoneyTransfer(
+    {
+      ...payload,
+      type: 'CASH_IN',
+      fee: 0,
+    },
+    externalTx
+  );
 };
 
 const sendMoney = async (senderId: string, payload: TSendMoneyInput) => {
@@ -74,87 +237,16 @@ const sendMoney = async (senderId: string, payload: TSendMoneyInput) => {
     throw new AppError(StatusCodes.BAD_REQUEST, 'You cannot send money to yourself.');
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const senderWallet = await getOrCreateWallet(senderId, tx);
-    const receiverWallet = await getOrCreateWallet(receiver.id, tx);
-
-    if (Number(senderWallet.balance) < amount) {
-      throw new AppError(StatusCodes.BAD_REQUEST, 'Insufficient balance.');
-    }
-
-    // Deduct sender
-    const updatedSenderWallet = await tx.wallet.update({
-      where: { id: senderWallet.id },
-      data: { balance: { decrement: amount } },
-    });
-
-    await tx.user.update({
-      where: { id: senderId },
-      data: { balance: { decrement: amount } },
-    });
-
-    // Credit receiver
-    const updatedReceiverWallet = await tx.wallet.update({
-      where: { id: receiverWallet.id },
-      data: { balance: { increment: amount } },
-    });
-
-    await tx.user.update({
-      where: { id: receiver.id },
-      data: { balance: { increment: amount } },
-    });
-
-    const reference = `TXN-SM-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-
-    const transaction = await tx.transaction.create({
-      data: {
-        reference,
-        type: 'SEND_MONEY',
-        status: 'COMPLETED',
-        amount,
-        totalAmount: amount,
-        senderWalletId: senderWallet.id,
-        receiverWalletId: receiverWallet.id,
-        initiatedById: senderId,
-        description: `Send money to ${receiver.profile?.name || receiver.email}`,
-      },
-    });
-
-    await tx.walletLedger.create({
-      data: {
-        walletId: senderWallet.id,
-        transactionId: transaction.id,
-        type: 'DEBIT',
-        amount,
-        balanceBefore: senderWallet.balance,
-        balanceAfter: Number(senderWallet.balance) - amount,
-      },
-    });
-
-    await tx.walletLedger.create({
-      data: {
-        walletId: receiverWallet.id,
-        transactionId: transaction.id,
-        type: 'CREDIT',
-        amount,
-        balanceBefore: receiverWallet.balance,
-        balanceAfter: Number(receiverWallet.balance) + amount,
-      },
-    });
-
-    return {
-      transaction,
-      senderBalance: Number(updatedSenderWallet.balance),
-      receiverBalance: Number(updatedReceiverWallet.balance),
-    };
+  const result = await executeMoneyTransfer({
+    senderId,
+    receiverId: receiver.id,
+    amount,
+    type: 'SEND_MONEY',
+    description: `Send money to ${receiver.profile?.name || receiver.email}`,
+    checkBalance: true,
   });
 
-  await invalidateAuthUserCache(senderId);
-  await invalidateAuthUserCache(receiver.id);
-
-  // Notify receiver and update balances
   const io = getIO();
-  io.to(receiver.id).emit('balance-updated', { balance: result.receiverBalance });
   io.to(receiver.id).emit('notification', {
     message: `You received BDT ${amount} from ${sender.profile?.name || sender.phone || sender.email}.`,
   });
@@ -396,4 +488,10 @@ export const transactionService = {
   sendMoney,
   cashInToUser,
   cashOut,
+  executeMoneyTransfer,
+  executeSendMoneyTransfer,
+  executeCashInTransfer,
+  getOrCreateWallet,
+  SEND_MONEY_FEE,
+  CASH_IN_FEE,
 };

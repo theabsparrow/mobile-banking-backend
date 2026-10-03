@@ -8,6 +8,7 @@ import { requestController } from './request.controller.js';
 import { requestValidation } from './request.validation.js';
 import { router } from '../../config/express.js';
 
+// agent request to admin to refill his wallet
 router.post(
   '/business',
   auth(Role.AGENT),
@@ -24,6 +25,7 @@ router.post(
   requestController.createBusinessRequest
 );
 
+// any user can request to anybody to  get money
 router.post(
   '/personal',
   auth(),
@@ -40,9 +42,10 @@ router.post(
   requestController.createPersonalRequest
 );
 
+// get all requests - accessible only by super admin
 router.get(
   '/',
-  auth(Role.ADMIN, Role.SUPER_ADMIN),
+  auth(Role.SUPER_ADMIN),
   rateLimiter({
     keyPrefix: 'rl:req:list:',
     windowMs: 60 * 1000,
@@ -55,6 +58,23 @@ router.get(
   requestController.getRequests
 );
 
+// get agent requests - accessible only by admin
+router.get(
+  '/agent-requests',
+  auth(Role.ADMIN),
+  rateLimiter({
+    keyPrefix: 'rl:req:agent-list:',
+    windowMs: 60 * 1000,
+    max: 60,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return user.userId;
+    },
+  }),
+  requestController.getAgentRequests
+);
+
+// agent and the customers can get their own requests
 router.get(
   '/my-request',
   auth(Role.CUSTOMER, Role.AGENT),
@@ -70,6 +90,39 @@ router.get(
   requestController.getMyRequests
 );
 
+// user can get requests received by them (incoming requests)
+router.get(
+  '/received-requests',
+  auth(),
+  rateLimiter({
+    keyPrefix: 'rl:req:received:',
+    windowMs: 60 * 1000,
+    max: 60,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return user.userId;
+    },
+  }),
+  requestController.getReceivedRequests
+);
+
+// user can get requests processed by them (approved or rejected)
+router.get(
+  '/processed-requests',
+  auth(),
+  rateLimiter({
+    keyPrefix: 'rl:req:processed:',
+    windowMs: 60 * 1000,
+    max: 60,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return user.userId;
+    },
+  }),
+  requestController.getProcessedRequests
+);
+
+// user can get his requests by request by id
 router.get(
   '/:id',
   auth(),
@@ -85,6 +138,7 @@ router.get(
   requestController.getRequestById
 );
 
+// user can cancel the request which is sent by his own
 router.patch(
   '/:id/cancel',
   auth(),
@@ -101,6 +155,7 @@ router.patch(
   requestController.cancelRequest
 );
 
+// request can be rejected by the user which is sent for him
 router.patch(
   '/:id/reject',
   auth(),
@@ -117,6 +172,7 @@ router.patch(
   requestController.rejectRequest
 );
 
+// request can be approved by the user which is sent for him (unified)
 router.patch(
   '/:id/approve',
   auth(),
@@ -133,6 +189,41 @@ router.patch(
   requestController.approveRequest
 );
 
+// business request approval by admin (CASH_IN, fee: 0)
+router.patch(
+  '/:id/approve-business',
+  auth(Role.ADMIN, Role.SUPER_ADMIN),
+  rateLimiter({
+    keyPrefix: 'rl:req:approve-bus:',
+    windowMs: 60 * 1000,
+    max: 20,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return user.userId;
+    },
+  }),
+  validateRequest(requestValidation.processRequestValidationSchema),
+  requestController.approveBusinessRequest
+);
+
+// personal request approval by receiver (SEND_MONEY, fee applied)
+router.patch(
+  '/:id/approve-personal',
+  auth(),
+  rateLimiter({
+    keyPrefix: 'rl:req:approve-per:',
+    windowMs: 60 * 1000,
+    max: 20,
+    keyGenerator: (req) => {
+      const user = req.user as TJwtPayload;
+      return user.userId;
+    },
+  }),
+  validateRequest(requestValidation.processRequestValidationSchema),
+  requestController.approvePersonalRequest
+);
+
+// request can be delete by the users
 router.delete(
   '/:id',
   auth(),
