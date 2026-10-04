@@ -59,6 +59,11 @@ const createUser = async (payload: TCreateUser, userId: string) => {
           name: payload.name ?? payload.email.split('@')[0] ?? '',
         },
       },
+      wallet: {
+        create: {
+          balance: 0.0,
+        },
+      },
     },
     select: {
       id: true,

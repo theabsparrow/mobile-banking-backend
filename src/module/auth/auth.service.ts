@@ -73,6 +73,11 @@ const registerUser = async (payload: TUser) => {
           name: email.split('@')[0] ?? '',
         },
       },
+      wallet: {
+        create: {
+          balance: 0.0,
+        },
+      },
     },
   });
 

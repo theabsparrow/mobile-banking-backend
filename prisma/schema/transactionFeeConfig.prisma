@@ -1,0 +1,14 @@
+model TransactionFeeConfig {
+  id                           String   @id @default(uuid())
+  sendMoneyFeePerThousand      Decimal  @default(5.00) @db.Decimal(10, 2)
+  cashOutFeePerThousand        Decimal  @default(15.00) @db.Decimal(10, 2)
+  cashInCommissionPerThousand  Decimal  @default(4.14) @db.Decimal(10, 2)
+  cashOutCommissionPerThousand Decimal  @default(0.00) @db.Decimal(10, 2)
+  updatedById                  String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  updatedBy User? @relation("FeeConfigUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("transaction_fee_configs")
+}

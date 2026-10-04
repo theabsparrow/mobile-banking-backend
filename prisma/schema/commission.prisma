@@ -1,0 +1,17 @@
+model Commission {
+  id            String   @id @default(uuid())
+  agentId       String
+  transactionId String   @unique
+  amount        Decimal  @db.Decimal(18, 2)
+  rate          Decimal  @default(0) @db.Decimal(18, 4)
+  description   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  agent       User        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([createdAt])
+  @@map("commissions")
+}

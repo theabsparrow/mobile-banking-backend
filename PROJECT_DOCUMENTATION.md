@@ -530,44 +530,50 @@ All transactions are executed atomically using Prisma transactions (`prisma.$tra
   7. Creates two `WalletLedger` entries (`DEBIT` for sender, `CREDIT` for receiver).
   8. Purges Redis user cache for both users.
   9. Emits Socket.IO `balance-updated` and `notification` events to recipient in real time.
+- **Fee Calculation:** Extra cost calculated per thousand (`BDT 5 per 1,000 BDT`).
 - **Request Body:**
   ```json
   {
     "receiverPhoneOrEmail": "01811111111",
-    "amount": 500,
-    "pin": "123456"
-  }
-  ```
-
-#### `POST /transactions/cash-in`
-- **Description:** Agent deposits money into a Customer's account.
-- **Access:** `AGENT`
-- **Rate Limit:** 20 requests / 1 minute
-- **Flow:**
-  1. Validates Agent's transaction PIN.
-  2. Deducts amount from Agent's wallet.
-  3. Credits amount to Customer's wallet.
-  4. Records `CASH_IN` transaction and double-entry ledger records.
-  5. Real-time balance notification to Customer via Socket.IO.
-- **Request Body:**
-  ```json
-  {
-    "receiverPhoneOrEmail": "customer@example.com",
     "amount": 1000,
     "pin": "123456"
   }
   ```
 
+#### `POST /transactions/cash-in`
+- **Description:** Unified Cash In endpoint.
+  - If initiated by `AGENT`: Deposits money into a Customer's account and earns agent commission (`BDT 4.14 per 1,000 BDT`) recorded in the Commission table.
+  - If initiated by `ADMIN` / `SUPER_ADMIN`: Allocates float money directly to an Agent.
+- **Access:** `AGENT`, `ADMIN`, `SUPER_ADMIN`
+- **Rate Limit:** 20 requests / 1 minute
+- **Request Body:**
+  ```json
+  {
+    "receiverPhoneOrEmail": "customer@example.com",
+    "amount": 1000,
+    "pin": "123456",
+    "description": "Business Cash In"
+  }
+  ```
+
+#### `POST /transactions/admin-cash-in`
+- **Description:** Dedicated float replenishment endpoint where Admin allocates balance to an Agent.
+- **Access:** `ADMIN`, `SUPER_ADMIN`
+- **Rate Limit:** 20 requests / 1 minute
+- **Request Body:**
+  ```json
+  {
+    "agentPhoneOrEmail": "agent@example.com",
+    "amount": 50000,
+    "pin": "123456",
+    "description": "Float replenishment"
+  }
+  ```
+
 #### `POST /transactions/cash-out`
-- **Description:** Customer withdraws money through an Agent.
+- **Description:** Customer withdraws money through an Agent with fee per thousand (`BDT 15 per 1,000 BDT`).
 - **Access:** `CUSTOMER`
 - **Rate Limit:** 15 requests / 1 minute
-- **Flow:**
-  1. Validates Customer's transaction PIN.
-  2. Deducts amount from Customer's wallet.
-  3. Credits amount to Agent's wallet.
-  4. Records `CASH_OUT` transaction and double-entry ledger records.
-  5. Real-time notification to Agent via Socket.IO.
 - **Request Body:**
   ```json
   {
@@ -576,6 +582,92 @@ All transactions are executed atomically using Prisma transactions (`prisma.$tra
     "pin": "123456"
   }
   ```
+
+#### `GET /transactions` (Admin & Super Admin)
+- **Description:** View all system transactions with extensive search and filtering.
+- **Access:** `SUPER_ADMIN`, `ADMIN`
+- **Rate Limit:** 60 requests / 1 minute
+- **Query Parameters:**
+  - `service` / `type`: Filter by transaction type (`SEND_MONEY`, `CASH_IN`, `CASH_OUT`, etc.)
+  - `status`: Filter by transaction status (`COMPLETED`, `PENDING`, `FAILED`, etc.)
+  - `date`: Filter for a specific single date (`YYYY-MM-DD`)
+  - `startDate` & `endDate`: Filter by custom date range
+  - `senderSearch`: Search sender by name, email, or phone
+  - `receiverSearch`: Search receiver by name, email, or phone
+  - `search`: Global search across sender/receiver name, email, phone, reference, or description
+  - `page`, `limit`, `sortBy`, `sortOrder`: Pagination controls
+
+#### `GET /transactions/my-transactions`
+- **Description:** Logged-in Customer/Agent retrieves their personal transaction history. Excludes soft-deleted/hidden transactions for the calling user.
+- **Access:** Authenticated (`auth()`)
+- **Rate Limit:** 60 requests / 1 minute
+- **Query Parameters:**
+  - `service` / `type`: Filter by transaction type
+  - `status`: Filter by status
+  - `date`: Filter for a specific date (`YYYY-MM-DD`)
+  - `startDate` & `endDate`: Filter by date range
+  - `search`: Search counterparty (other party) by name, email, phone, or reference
+  - `page`, `limit`, `sortBy`, `sortOrder`: Pagination controls
+- **Response Features:** Includes `direction` (`"IN"` or `"OUT"`) and `counterparty` information.
+
+#### `GET /transactions/commissions`
+- **Description:** Agent retrieves their earned cash-in commissions and aggregated total income.
+- **Access:** `AGENT`, `ADMIN`, `SUPER_ADMIN`
+- **Rate Limit:** 60 requests / 1 minute
+- **Query Parameters:** `date`, `startDate`, `endDate`, `search`, `page`, `limit`
+- **Response:**
+  ```json
+  {
+    "success": true,
+    "message": "Agent commissions retrieved successfully.",
+    "meta": { "page": 1, "limit": 10, "total": 25, "totalPage": 3 },
+    "data": {
+      "totalIncome": 103.50,
+      "commissions": [ ... ]
+    }
+  }
+  ```
+
+#### `DELETE /transactions/:id`
+- **Description:** Per-user soft deletion. Removes/hides the transaction from the calling user's view only (`transaction_hides`). The transaction remains visible to the other party and to Administrators.
+- **Access:** Authenticated (`auth()`)
+- **Rate Limit:** 30 requests / 1 minute
+
+#### `GET /transactions/fee-config`
+- **Description:** Retrieves the current dynamic transaction fee and commission configuration.
+- **Access:** Authenticated (`auth()`)
+- **Rate Limit:** 60 requests / 1 minute
+
+#### `PATCH /transactions/fee-config`
+- **Description:** Admin/Super Admin updates the system fee and commission rates from the dashboard. Changes take effect immediately system-wide.
+- **Access:** `ADMIN`, `SUPER_ADMIN`
+- **Rate Limit:** 20 requests / 1 minute
+- **Request Body:**
+  ```json
+  {
+    "sendMoneyFeePerThousand": 8.0,
+    "cashOutFeePerThousand": 18.0,
+    "cashInCommissionPerThousand": 6.0,
+    "cashOutCommissionPerThousand": 0.0
+  }
+  ```
+
+---
+
+### 5. Wallet Module (`/api/v1/wallets`)
+
+All wallet requests leverage Redis caching (`wallet:user:<userId>`) with a 1-hour TTL. Caches are immediately invalidated and synchronized across all money transfer operations (Send Money, Cash In, Cash Out, and Request Approval).
+
+#### `GET /wallets/my-wallet` (or `/wallets/me`)
+- **Description:** Retrieves the logged-in user's wallet with balance, currency, status, and profile details.
+- **Access:** Authenticated (`auth()`)
+- **Rate Limit:** 120 requests / 1 minute
+- **Cache Strategy:** Checks Redis first; on miss, queries PostgreSQL, stores in Redis, and returns.
+
+#### `GET /wallets/user/:id`
+- **Description:** Admin views any user's wallet.
+- **Access:** `ADMIN`, `SUPER_ADMIN`
+- **Rate Limit:** 60 requests / 1 minute
 
 ---
 

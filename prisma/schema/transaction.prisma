@@ -30,10 +30,12 @@ model Transaction {
     updatedAt        DateTime          @updatedAt
 
     // realtions
-    senderWallet   Wallet?        @relation("TransactionSender", fields: [senderWalletId], references: [id])
-    receiverWallet Wallet?        @relation("TransactionReceiver", fields: [receiverWalletId], references: [id])
-    initiatedBy    User           @relation(fields: [initiatedById], references: [id])
+    senderWallet   Wallet?           @relation("TransactionSender", fields: [senderWalletId], references: [id])
+    receiverWallet Wallet?           @relation("TransactionReceiver", fields: [receiverWalletId], references: [id])
+    initiatedBy    User              @relation(fields: [initiatedById], references: [id])
     ledgerEntries  WalletLedger[]
+    commission     Commission?
+    hiddenBy       TransactionHide[]
 
     @@index([senderWalletId])
     @@index([receiverWalletId])
